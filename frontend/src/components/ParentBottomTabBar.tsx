@@ -1,9 +1,10 @@
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, Plus, Coins } from "lucide-react";
+import { LayoutDashboard, Plus, Coins, ClipboardList } from "lucide-react";
 
 const tabs = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard, prominent: false },
   { label: "Add task", to: "/tasks", icon: Plus, prominent: true },
+  { label: "To-Do", to: "/todo", icon: ClipboardList, prominent: false },
   { label: "ExBucks", to: "/exbucks", icon: Coins, prominent: false },
 ];
 

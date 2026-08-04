@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { ListTodo, ShoppingBag, Trophy, Menu, X, User, Settings, Users, Coins, Sparkles, Moon, Sun, LogOut } from "lucide-react";
+import { ListTodo, ShoppingBag, Trophy, Menu, X, User, Settings, Users, Coins, Sparkles, Moon, Sun, LogOut, ClipboardList } from "lucide-react";
 
 const tabs = [
   { label: "Tasks", to: "/tasks", icon: ListTodo },
+  { label: "To-Do", to: "/todo", icon: ClipboardList },
   { label: "Shop", to: "/shop", icon: ShoppingBag },
   { label: "Leaderboard", to: "/leaderboard", icon: Trophy },
 ];

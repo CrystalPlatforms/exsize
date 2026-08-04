@@ -31,3 +31,14 @@ def client():
     yield TestClient(app)
     app.dependency_overrides.clear()
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture()
+def db():
+    """Fresh in-memory SQLite session for unit tests of service/repository layers."""
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    TestingSession = sessionmaker(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    session = TestingSession()
+    yield session
+    session.close()

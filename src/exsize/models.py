@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from exsize.database import Base
@@ -119,3 +119,35 @@ class ApiToken(Base):
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())
     revoked_at: Mapped[str | None] = mapped_column(DateTime, nullable=True)
+
+
+class CryploTransfer(Base):
+    __tablename__ = "cryplo_transfers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    exsize_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    type: Mapped[str] = mapped_column(String, nullable=False)  # "deposit" or "withdraw"
+    amount_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    excoin_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="completed")
+    created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    completed_at: Mapped[str | None] = mapped_column(DateTime, nullable=True)
+
+
+class TodoList(Base):
+    __tablename__ = "todo_lists"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class TodoItem(Base):
+    __tablename__ = "todo_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    list_id: Mapped[int] = mapped_column(Integer, ForeignKey("todo_lists.id"), nullable=False)
+    completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())

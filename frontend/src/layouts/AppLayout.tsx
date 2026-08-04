@@ -49,12 +49,14 @@ const NAV_ITEMS: Record<string, { label: string; to: string }[]> = {
   parent: [
     { label: "Dashboard", to: "/dashboard" },
     { label: "Tasks", to: "/tasks" },
+    { label: "To-Do", to: "/todo" },
     { label: "Family", to: "/family" },
     { label: "ExBucks", to: "/exbucks" },
     { label: "Settings", to: "/settings" },
   ],
   child: [
     { label: "Tasks", to: "/tasks" },
+    { label: "To-Do", to: "/todo" },
     { label: "Family", to: "/family" },
     { label: "ExBucks", to: "/exbucks" },
     { label: "Shop", to: "/shop" },
@@ -65,6 +67,7 @@ const NAV_ITEMS: Record<string, { label: string; to: string }[]> = {
   admin: [
     { label: "Dashboard", to: "/dashboard" },
     { label: "Tasks", to: "/tasks" },
+    { label: "To-Do", to: "/todo" },
     { label: "Family", to: "/family" },
     { label: "ExBucks", to: "/exbucks" },
     { label: "Avatar Items", to: "/avatar-items" },

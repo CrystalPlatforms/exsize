@@ -25,6 +25,7 @@ export async function apiFetch<T>(
     const body = await res.json().catch(() => ({}));
     throw new ApiError(res.status, body.detail ?? "Request failed");
   }
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -551,4 +552,64 @@ export function approveDeletionRequest(requestId: number) {
     `/api/account/deletion-requests/${requestId}/approve`,
     { method: "POST" },
   );
+}
+
+// --- Todo (ExSize 2.0) ---
+
+export interface TodoItemResponse {
+  id: number;
+  title: string;
+  completed: boolean;
+}
+
+export interface TodoListResponse {
+  id: number;
+  name: string;
+  items: TodoItemResponse[];
+}
+
+export function getTodoLists() {
+  return apiFetch<TodoListResponse[]>("/api/todo/lists");
+}
+
+export function createTodoList(name: string) {
+  return apiFetch<TodoListResponse>("/api/todo/lists", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function renameTodoList(listId: number, name: string) {
+  return apiFetch<TodoListResponse>(`/api/todo/lists/${listId}`, {
+    method: "PUT",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function deleteTodoList(listId: number) {
+  return apiFetch<void>(`/api/todo/lists/${listId}`, { method: "DELETE" });
+}
+
+export function addTodoItem(listId: number, title: string) {
+  return apiFetch<TodoItemResponse>(`/api/todo/lists/${listId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function completeTodoItem(itemId: number) {
+  return apiFetch<TodoItemResponse>(`/api/todo/items/${itemId}/complete`, {
+    method: "PATCH",
+  });
+}
+
+export function editTodoItem(itemId: number, title: string) {
+  return apiFetch<TodoItemResponse>(`/api/todo/items/${itemId}`, {
+    method: "PUT",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export function deleteTodoItem(itemId: number) {
+  return apiFetch<void>(`/api/todo/items/${itemId}`, { method: "DELETE" });
 }

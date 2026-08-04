@@ -1,0 +1,205 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { AuthProvider } from "@/auth";
+import TodoPage from "@/pages/TodoPage";
+
+vi.mock("@/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/api")>();
+  return {
+    ...actual,
+    getTodoLists: vi.fn(),
+    createTodoList: vi.fn(),
+    renameTodoList: vi.fn(),
+    deleteTodoList: vi.fn(),
+    addTodoItem: vi.fn(),
+    completeTodoItem: vi.fn(),
+    editTodoItem: vi.fn(),
+    deleteTodoItem: vi.fn(),
+    getMe: vi.fn(),
+    setToken: vi.fn(),
+  };
+});
+
+import {
+  getTodoLists as getTodoListsMock,
+  createTodoList as createTodoListMock,
+  renameTodoList as renameTodoListMock,
+  deleteTodoList as deleteTodoListMock,
+  addTodoItem as addTodoItemMock,
+  completeTodoItem as completeTodoItemMock,
+  editTodoItem as editTodoItemMock,
+  deleteTodoItem as deleteTodoItemMock,
+} from "@/api";
+
+function renderTodoPage() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <MemoryRouter>
+          <TodoPage />
+        </MemoryRouter>
+      </AuthProvider>
+    </QueryClientProvider>,
+  );
+}
+
+const EMPTY_LIST = { id: 1, name: "Zakupy", items: [] };
+const LIST_WITH_ITEM = {
+  id: 1,
+  name: "Zakupy",
+  items: [{ id: 1, title: "Mleko", completed: false }],
+};
+
+describe("TodoPage", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("renders existing todo lists and items", async () => {
+    vi.mocked(getTodoListsMock).mockResolvedValue([LIST_WITH_ITEM]);
+    renderTodoPage();
+    expect(await screen.findByText("Zakupy")).toBeInTheDocument();
+    expect(screen.getByText("Mleko")).toBeInTheDocument();
+  });
+
+  it("creates a list when the form is submitted", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([]);
+    vi.mocked(createTodoListMock).mockResolvedValue({
+      id: 1,
+      name: "Praca",
+      items: [],
+    });
+
+    renderTodoPage();
+    await screen.findByText("To-Do");
+
+    await user.type(screen.getByLabelText(/list name/i), "Praca");
+    await user.click(screen.getByRole("button", { name: /create list/i }));
+
+    await waitFor(() =>
+      expect(createTodoListMock).toHaveBeenCalledWith("Praca", expect.anything()),
+    );
+  });
+
+  it("adds an item to a list", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([EMPTY_LIST]);
+    vi.mocked(addTodoItemMock).mockResolvedValue({
+      id: 1,
+      title: "Chleb",
+      completed: false,
+    });
+
+    renderTodoPage();
+    await screen.findByText("Zakupy");
+
+    await user.type(screen.getByLabelText(/add item to/i), "Chleb");
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() =>
+      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb"),
+    );
+  });
+
+  it("toggles an item complete via the checkbox", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([LIST_WITH_ITEM]);
+    vi.mocked(completeTodoItemMock).mockResolvedValue({
+      id: 1,
+      title: "Mleko",
+      completed: true,
+    });
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    await user.click(
+      screen.getByRole("checkbox", { name: /toggle.*mleko/i }),
+    );
+
+    await waitFor(() => expect(completeTodoItemMock).toHaveBeenCalledWith(1, expect.anything()));
+  });
+
+  it("edits an item inline", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([LIST_WITH_ITEM]);
+    vi.mocked(editTodoItemMock).mockResolvedValue({
+      id: 1,
+      title: "Mleko 2%",
+      completed: false,
+    });
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    await user.click(screen.getByRole("button", { name: /edit item/i }));
+    const input = screen.getByLabelText(/edit item title/i);
+    expect(input).toHaveValue("Mleko");
+    await user.clear(input);
+    await user.type(input, "Mleko 2%");
+    await user.click(screen.getByRole("button", { name: /save item/i }));
+
+    await waitFor(() =>
+      expect(editTodoItemMock).toHaveBeenCalledWith(1, "Mleko 2%"),
+    );
+  });
+
+  it("deletes an item", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([LIST_WITH_ITEM]);
+    vi.mocked(deleteTodoItemMock).mockResolvedValue(undefined);
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    await user.click(screen.getByRole("button", { name: /delete item/i }));
+
+    await waitFor(() => expect(deleteTodoItemMock).toHaveBeenCalledWith(1, expect.anything()));
+  });
+
+  it("renames a list inline", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([EMPTY_LIST]);
+    vi.mocked(renameTodoListMock).mockResolvedValue({
+      id: 1,
+      name: "Codzienne",
+      items: [],
+    });
+
+    renderTodoPage();
+    await screen.findByText("Zakupy");
+
+    await user.click(screen.getByRole("button", { name: /rename list/i }));
+    const input = screen.getByLabelText(/edit list name/i);
+    expect(input).toHaveValue("Zakupy");
+    await user.clear(input);
+    await user.type(input, "Codzienne");
+    await user.click(screen.getByRole("button", { name: /save list name/i }));
+
+    await waitFor(() =>
+      expect(renameTodoListMock).toHaveBeenCalledWith(1, "Codzienne"),
+    );
+  });
+
+  it("deletes a list after confirmation", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([EMPTY_LIST]);
+    vi.mocked(deleteTodoListMock).mockResolvedValue(undefined);
+
+    renderTodoPage();
+    await screen.findByText("Zakupy");
+
+    await user.click(screen.getByRole("button", { name: /delete list/i }));
+    expect(screen.getByText(/are you sure/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /confirm/i }));
+
+    await waitFor(() => expect(deleteTodoListMock).toHaveBeenCalledWith(1, expect.anything()));
+  });
+});

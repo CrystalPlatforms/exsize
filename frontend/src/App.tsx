@@ -13,6 +13,7 @@ import AdminSettingsPage from "@/pages/AdminSettingsPage";
 import LeaderboardPage from "@/pages/LeaderboardPage";
 import SizePassPage from "@/pages/SizePassPage";
 import AvatarItemsPage from "@/pages/AvatarItemsPage";
+import TodoPage from "@/pages/TodoPage";
 import AuthModal from "@/components/AuthModal";
 
 const queryClient = new QueryClient();
@@ -29,6 +30,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/dashboard" element={<DashboardPage user={user} />} />
         <Route path="/tasks" element={<TasksPage user={user} />} />
+        <Route path="/todo" element={<TodoPage />} />
         <Route path="/family" element={<FamilyPage user={user} />} />
         <Route path="/exbucks" element={<ExBucksPage user={user} />} />
         <Route path="/shop" element={<ShopPage user={user} />} />
