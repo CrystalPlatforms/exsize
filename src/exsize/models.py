@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -150,4 +152,5 @@ class TodoItem(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     list_id: Mapped[int] = mapped_column(Integer, ForeignKey("todo_lists.id"), nullable=False)
     completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())

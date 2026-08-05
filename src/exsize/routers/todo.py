@@ -5,6 +5,8 @@ translates TodoNotFound into 404. Lists and items belong to the authenticated
 user — no family required.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -40,6 +42,7 @@ class TodoItemResponse(BaseModel):
     id: int
     title: str
     completed: bool
+    due_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -95,12 +98,13 @@ def delete_list(list_id: int, user: User = Depends(get_current_user), db: Sessio
 
 class ItemWriteRequest(BaseModel):
     title: str
+    due_at: datetime | None = None
 
 
 @router.post("/lists/{list_id}/items", response_model=TodoItemResponse, status_code=status.HTTP_201_CREATED)
 def add_item(list_id: int, body: ItemWriteRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        return _service(user, db).add_item(list_id, body.title)
+        return _service(user, db).add_item(list_id, body.title, due_at=body.due_at)
     except TodoNotFound:
         raise _not_found()
 
@@ -121,9 +125,32 @@ def edit_item(item_id: int, body: ItemWriteRequest, user: User = Depends(get_cur
         raise _not_found()
 
 
+class DueRequest(BaseModel):
+    due_at: datetime | None = None
+
+
+@router.patch("/items/{item_id}/due", response_model=TodoItemResponse)
+def set_item_due(item_id: int, body: DueRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        return _service(user, db).set_due_at(item_id, body.due_at)
+    except TodoNotFound:
+        raise _not_found()
+
+
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_item(item_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         _service(user, db).delete_item(item_id)
     except TodoNotFound:
         raise _not_found()
+
+
+@router.get("/due", response_model=list[TodoItemResponse])
+def list_due(
+    before: datetime | None = None,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Uncompleted items due at or before `before` (defaults to now)."""
+    moment = before if before is not None else datetime.now()
+    return _service(user, db).list_due_before(moment)

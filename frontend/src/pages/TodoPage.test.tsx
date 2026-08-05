@@ -18,6 +18,7 @@ vi.mock("@/api", async (importOriginal) => {
     completeTodoItem: vi.fn(),
     editTodoItem: vi.fn(),
     deleteTodoItem: vi.fn(),
+    setTodoItemDue: vi.fn(),
     getMe: vi.fn(),
     setToken: vi.fn(),
   };
@@ -32,6 +33,7 @@ import {
   completeTodoItem as completeTodoItemMock,
   editTodoItem as editTodoItemMock,
   deleteTodoItem as deleteTodoItemMock,
+  setTodoItemDue as setTodoItemDueMock,
 } from "@/api";
 
 function renderTodoPage() {
@@ -53,7 +55,7 @@ const EMPTY_LIST = { id: 1, name: "Zakupy", items: [] };
 const LIST_WITH_ITEM = {
   id: 1,
   name: "Zakupy",
-  items: [{ id: 1, title: "Mleko", completed: false }],
+  items: [{ id: 1, title: "Mleko", completed: false, dueAt: null }],
 };
 
 describe("TodoPage", () => {
@@ -95,6 +97,7 @@ describe("TodoPage", () => {
       id: 1,
       title: "Chleb",
       completed: false,
+      dueAt: null,
     });
 
     renderTodoPage();
@@ -104,7 +107,7 @@ describe("TodoPage", () => {
     await user.click(screen.getByRole("button", { name: /^add$/i }));
 
     await waitFor(() =>
-      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb"),
+      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb", undefined),
     );
   });
 
@@ -115,6 +118,7 @@ describe("TodoPage", () => {
       id: 1,
       title: "Mleko",
       completed: true,
+      dueAt: null,
     });
 
     renderTodoPage();
@@ -134,6 +138,7 @@ describe("TodoPage", () => {
       id: 1,
       title: "Mleko 2%",
       completed: false,
+      dueAt: null,
     });
 
     renderTodoPage();
@@ -201,5 +206,139 @@ describe("TodoPage", () => {
     await user.click(screen.getByRole("button", { name: /confirm/i }));
 
     await waitFor(() => expect(deleteTodoListMock).toHaveBeenCalledWith(1, expect.anything()));
+  });
+
+  it("shows the formatted due date for an item with one", async () => {
+    vi.mocked(getTodoListsMock).mockResolvedValue([
+      {
+        id: 1,
+        name: "Zakupy",
+        items: [
+          { id: 2, title: "Mleko", completed: false, dueAt: "2026-08-06T18:00:00" },
+        ],
+      },
+    ]);
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    expect(screen.getByText("06.08.2026 18:00")).toBeInTheDocument();
+  });
+
+  it("flags an overdue uncompleted item with an Overdue badge", async () => {
+    vi.mocked(getTodoListsMock).mockResolvedValue([
+      {
+        id: 1,
+        name: "Zakupy",
+        items: [{ id: 2, title: "Mleko", completed: false, dueAt: "2020-01-01T08:00:00" }],
+      },
+    ]);
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    expect(screen.getByText(/overdue/i)).toBeInTheDocument();
+  });
+
+  it("flags an upcoming item with an Upcoming badge", async () => {
+    vi.mocked(getTodoListsMock).mockResolvedValue([
+      {
+        id: 1,
+        name: "Zakupy",
+        items: [{ id: 2, title: "Mleko", completed: false, dueAt: "2099-01-01T08:00:00" }],
+      },
+    ]);
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    expect(screen.getByText(/upcoming/i)).toBeInTheDocument();
+  });
+
+  it("does not flag a completed overdue item", async () => {
+    vi.mocked(getTodoListsMock).mockResolvedValue([
+      {
+        id: 1,
+        name: "Zakupy",
+        items: [{ id: 2, title: "Mleko", completed: true, dueAt: "2020-01-01T08:00:00" }],
+      },
+    ]);
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    expect(screen.queryByText(/overdue|upcoming/i)).not.toBeInTheDocument();
+  });
+
+  it("adds an item with a due date", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([EMPTY_LIST]);
+    vi.mocked(addTodoItemMock).mockResolvedValue({
+      id: 1,
+      title: "Chleb",
+      completed: false,
+      dueAt: null,
+    });
+
+    renderTodoPage();
+    await screen.findByText("Zakupy");
+
+    await user.type(screen.getByLabelText(/add item to/i), "Chleb");
+    await user.type(screen.getByLabelText(/due date/i), "2026-08-06T12:00");
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() =>
+      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb", "2026-08-06T12:00"),
+    );
+  });
+
+  it("sets a due date on an existing item", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([LIST_WITH_ITEM]);
+    vi.mocked(setTodoItemDueMock).mockResolvedValue({
+      id: 1,
+      title: "Mleko",
+      completed: false,
+      dueAt: "2026-08-06T12:00:00",
+    });
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    await user.click(screen.getByRole("button", { name: /set due/i }));
+    const input = screen.getByLabelText(/set due date/i);
+    await user.type(input, "2026-08-06T12:00");
+    await user.click(screen.getByRole("button", { name: /save due/i }));
+
+    await waitFor(() =>
+      expect(setTodoItemDueMock).toHaveBeenCalledWith(1, "2026-08-06T12:00"),
+    );
+  });
+
+  it("clears the due date on an existing item", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([
+      {
+        id: 1,
+        name: "Zakupy",
+        items: [
+          { id: 1, title: "Mleko", completed: false, dueAt: "2026-08-06T12:00:00" },
+        ],
+      },
+    ]);
+    vi.mocked(setTodoItemDueMock).mockResolvedValue({
+      id: 1,
+      title: "Mleko",
+      completed: false,
+      dueAt: null,
+    });
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    await user.click(screen.getByRole("button", { name: /set due/i }));
+    await user.click(screen.getByRole("button", { name: /clear due/i }));
+
+    await waitFor(() => expect(setTodoItemDueMock).toHaveBeenCalledWith(1, null));
   });
 });

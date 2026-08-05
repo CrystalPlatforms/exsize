@@ -14,8 +14,29 @@ import {
   completeTodoItem,
   editTodoItem,
   deleteTodoItem,
+  setTodoItemDue,
   type TodoListResponse,
 } from "@/api";
+
+function formatDue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function dueBadge(item: { dueAt: string | null; completed: boolean }): { text: string; className: string } | null {
+  if (!item.dueAt || item.completed) return null;
+  const overdue = new Date(item.dueAt).getTime() <= Date.now();
+  return overdue
+    ? { text: "Overdue", className: "rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700" }
+    : { text: "Upcoming", className: "rounded bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-700" };
+}
+
+function toDatetimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export default function TodoPage() {
   const queryClient = useQueryClient();
@@ -23,8 +44,11 @@ export default function TodoPage() {
   const [newItemTitles, setNewItemTitles] = useState<Record<number, string>>(
     {},
   );
+  const [newItemDue, setNewItemDue] = useState<Record<number, string>>({});
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editItemTitle, setEditItemTitle] = useState("");
+  const [dueItemId, setDueItemId] = useState<number | null>(null);
+  const [dueValue, setDueValue] = useState("");
   const [renamingListId, setRenamingListId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingListId, setDeletingListId] = useState<number | null>(null);
@@ -63,11 +87,12 @@ export default function TodoPage() {
   });
 
   const addItemM = useMutation({
-    mutationFn: (v: { listId: number; title: string }) =>
-      addTodoItem(v.listId, v.title),
+    mutationFn: (v: { listId: number; title: string; dueAt?: string }) =>
+      addTodoItem(v.listId, v.title, v.dueAt),
     onSuccess: (_data, vars) => {
       invalidate();
       setNewItemTitles((prev) => ({ ...prev, [vars.listId]: "" }));
+      setNewItemDue((prev) => ({ ...prev, [vars.listId]: "" }));
     },
   });
 
@@ -87,6 +112,14 @@ export default function TodoPage() {
   const deleteItemM = useMutation({
     mutationFn: deleteTodoItem,
     onSuccess: invalidate,
+  });
+
+  const setDueM = useMutation({
+    mutationFn: (v: { id: number; dueAt: string | null }) => setTodoItemDue(v.id, v.dueAt),
+    onSuccess: () => {
+      invalidate();
+      setDueItemId(null);
+    },
   });
 
   if (isLoading) return <div>Loading...</div>;
@@ -194,7 +227,11 @@ export default function TodoPage() {
                 e.preventDefault();
                 const title = (newItemTitles[list.id] ?? "").trim();
                 if (!title) return;
-                addItemM.mutate({ listId: list.id, title });
+                addItemM.mutate({
+                  listId: list.id,
+                  title,
+                  dueAt: newItemDue[list.id] || undefined,
+                });
               }}
             >
               <div className="flex-1">
@@ -211,6 +248,22 @@ export default function TodoPage() {
                     }))
                   }
                   placeholder="Add an item"
+                />
+              </div>
+              <div>
+                <Label htmlFor={`new-item-due-${list.id}`} className="sr-only">
+                  Due date
+                </Label>
+                <Input
+                  id={`new-item-due-${list.id}`}
+                  type="datetime-local"
+                  value={newItemDue[list.id] ?? ""}
+                  onChange={(e) =>
+                    setNewItemDue((prev) => ({
+                      ...prev,
+                      [list.id]: e.target.value,
+                    }))
+                  }
                 />
               </div>
               <Button type="submit" size="sm" disabled={addItemM.isPending}>
@@ -270,6 +323,15 @@ export default function TodoPage() {
                       >
                         {item.title}
                       </span>
+                      {item.dueAt && (
+                        <span className="text-xs text-muted-foreground">
+                          {formatDue(item.dueAt)}
+                        </span>
+                      )}
+                      {(() => {
+                        const badge = dueBadge(item);
+                        return badge ? <span className={badge.className}>{badge.text}</span> : null;
+                      })()}
                       <Button
                         size="sm"
                         variant="outline"
@@ -283,6 +345,17 @@ export default function TodoPage() {
                       </Button>
                       <Button
                         size="sm"
+                        variant="outline"
+                        aria-label={`Set due for "${item.title}"`}
+                        onClick={() => {
+                          setDueItemId(item.id);
+                          setDueValue(item.dueAt ? toDatetimeLocalValue(item.dueAt) : "");
+                        }}
+                      >
+                        Set due
+                      </Button>
+                      <Button
+                        size="sm"
                         variant="destructive"
                         aria-label={`Delete item "${item.title}"`}
                         onClick={() => deleteItemM.mutate(item.id)}
@@ -290,6 +363,42 @@ export default function TodoPage() {
                         Delete item
                       </Button>
                     </>
+                  )}
+                  {dueItemId === item.id && (
+                    <div className="mt-2 flex w-full flex-wrap items-center gap-2">
+                      <Label htmlFor={`set-due-${item.id}`} className="sr-only">
+                        Set due date
+                      </Label>
+                      <Input
+                        id={`set-due-${item.id}`}
+                        type="datetime-local"
+                        value={dueValue}
+                        onChange={(e) => setDueValue(e.target.value)}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={setDueM.isPending}
+                        onClick={() =>
+                          setDueM.mutate({ id: item.id, dueAt: dueValue || null })
+                        }
+                      >
+                        Save due
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setDueM.mutate({ id: item.id, dueAt: null })}
+                      >
+                        Clear due
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setDueItemId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
                   )}
                 </div>
               ))}
