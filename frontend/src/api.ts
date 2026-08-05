@@ -556,11 +556,14 @@ export function approveDeletionRequest(requestId: number) {
 
 // --- Todo (ExSize 2.0) ---
 
+export type TodoRecurrence = "daily" | "weekly";
+
 export interface TodoItemResponse {
   id: number;
   title: string;
   completed: boolean;
   dueAt: string | null;
+  recurrence: TodoRecurrence | null;
 }
 
 export interface TodoListResponse {
@@ -591,10 +594,15 @@ export function deleteTodoList(listId: number) {
   return apiFetch<void>(`/api/todo/lists/${listId}`, { method: "DELETE" });
 }
 
-export function addTodoItem(listId: number, title: string, dueAt?: string | null) {
+export function addTodoItem(
+  listId: number,
+  title: string,
+  dueAt?: string | null,
+  recurrence?: TodoRecurrence | null,
+) {
   return apiFetch<TodoItemResponse>(`/api/todo/lists/${listId}/items`, {
     method: "POST",
-    body: JSON.stringify({ title, due_at: dueAt ?? null }),
+    body: JSON.stringify({ title, due_at: dueAt ?? null, recurrence: recurrence ?? null }),
   });
 }
 
@@ -615,6 +623,16 @@ export function setTodoItemDue(itemId: number, dueAt: string | null) {
   return apiFetch<TodoItemResponse>(`/api/todo/items/${itemId}/due`, {
     method: "PATCH",
     body: JSON.stringify({ due_at: dueAt }),
+  });
+}
+
+export function setTodoItemRecurrence(
+  itemId: number,
+  recurrence: TodoRecurrence | null,
+) {
+  return apiFetch<TodoItemResponse>(`/api/todo/items/${itemId}/recurrence`, {
+    method: "PATCH",
+    body: JSON.stringify({ recurrence }),
   });
 }
 

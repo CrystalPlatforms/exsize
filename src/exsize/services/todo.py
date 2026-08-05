@@ -10,6 +10,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from exsize.models import TodoItem, TodoList
+from exsize.services.recurrence import next_due
 
 
 class TodoNotFound(Exception):
@@ -63,9 +64,15 @@ class TodoService:
 
     # --- Items ---
 
-    def add_item(self, list_id: int, title: str, due_at: datetime | None = None) -> TodoItem:
+    def add_item(
+        self,
+        list_id: int,
+        title: str,
+        due_at: datetime | None = None,
+        recurrence: str | None = None,
+    ) -> TodoItem:
         todo_list = self._get_owned_list(list_id)
-        item = TodoItem(title=title, list_id=todo_list.id, due_at=due_at)
+        item = TodoItem(title=title, list_id=todo_list.id, due_at=due_at, recurrence=recurrence)
         self.db.add(item)
         self.db.commit()
         self.db.refresh(item)
@@ -110,10 +117,58 @@ class TodoService:
 
     def complete_item(self, item_id: int) -> TodoItem:
         item = self._get_owned_item(item_id)
+        was_open = not item.completed
         item.completed = not item.completed
+        # Odhaczenie cyklicznego elementu z terminem rodzi następne wystąpienie,
+        # żeby lista stale przypominała (stare zostaje odhaczone w historii).
+        if was_open and item.completed and item.recurrence and item.due_at:
+            self._spawn_next_occurrence(item)
         self.db.commit()
         self.db.refresh(item)
         return item
+
+    def _spawn_next_occurrence(self, item: TodoItem) -> TodoItem | None:
+        nxt = next_due(item.due_at, item.recurrence)
+        if nxt is None:
+            return None
+        spawned = TodoItem(
+            title=item.title,
+            list_id=item.list_id,
+            due_at=nxt,
+            recurrence=item.recurrence,
+            completed=False,
+        )
+        self.db.add(spawned)
+        return spawned
+
+    def advance_overdue_recurrences(self, now: datetime) -> list[TodoItem]:
+        """Dla cyklicznych, nieodhaczonych elementów z terminem <= `now`:
+        tworzy następne wystąpienie i odhacza stare. Zwraca nowo utworzone.
+
+        Przeznaczone dla schedulera (ReminderService, faza push) — nie ma skutków
+        ubocznych przy zwykłym odczycie listy, więc GET pozostaje niemutujący.
+        """
+        overdue = (
+            self.db.query(TodoItem)
+            .join(TodoList, TodoItem.list_id == TodoList.id)
+            .filter(TodoList.user_id == self.user_id)
+            .filter(TodoItem.completed.is_(False))
+            .filter(TodoItem.recurrence.isnot(None))
+            .filter(TodoItem.due_at.isnot(None))
+            .filter(TodoItem.due_at <= now)
+            .all()
+        )
+        created = []
+        for item in overdue:
+            spawned = self._spawn_next_occurrence(item)
+            if spawned is None:
+                continue
+            item.completed = True
+            created.append(spawned)
+        self.db.commit()
+        for spawned in created:
+            self.db.refresh(spawned)
+        return created
 
     def edit_item(self, item_id: int, title: str) -> TodoItem:
         item = self._get_owned_item(item_id)
@@ -125,6 +180,13 @@ class TodoService:
     def set_due_at(self, item_id: int, due_at: datetime | None) -> TodoItem:
         item = self._get_owned_item(item_id)
         item.due_at = due_at
+        self.db.commit()
+        self.db.refresh(item)
+        return item
+
+    def set_recurrence(self, item_id: int, recurrence: str | None) -> TodoItem:
+        item = self._get_owned_item(item_id)
+        item.recurrence = recurrence
         self.db.commit()
         self.db.refresh(item)
         return item

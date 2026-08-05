@@ -6,6 +6,7 @@ user — no family required.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -43,6 +44,7 @@ class TodoItemResponse(BaseModel):
     title: str
     completed: bool
     due_at: datetime | None = None
+    recurrence: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -99,12 +101,13 @@ def delete_list(list_id: int, user: User = Depends(get_current_user), db: Sessio
 class ItemWriteRequest(BaseModel):
     title: str
     due_at: datetime | None = None
+    recurrence: Literal["daily", "weekly"] | None = None
 
 
 @router.post("/lists/{list_id}/items", response_model=TodoItemResponse, status_code=status.HTTP_201_CREATED)
 def add_item(list_id: int, body: ItemWriteRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
-        return _service(user, db).add_item(list_id, body.title, due_at=body.due_at)
+        return _service(user, db).add_item(list_id, body.title, due_at=body.due_at, recurrence=body.recurrence)
     except TodoNotFound:
         raise _not_found()
 
@@ -133,6 +136,18 @@ class DueRequest(BaseModel):
 def set_item_due(item_id: int, body: DueRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         return _service(user, db).set_due_at(item_id, body.due_at)
+    except TodoNotFound:
+        raise _not_found()
+
+
+class RecurrenceRequest(BaseModel):
+    recurrence: Literal["daily", "weekly"] | None = None
+
+
+@router.patch("/items/{item_id}/recurrence", response_model=TodoItemResponse)
+def set_item_recurrence(item_id: int, body: RecurrenceRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        return _service(user, db).set_recurrence(item_id, body.recurrence)
     except TodoNotFound:
         raise _not_found()
 

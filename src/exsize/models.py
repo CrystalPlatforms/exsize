@@ -153,4 +153,5 @@ class TodoItem(Base):
     list_id: Mapped[int] = mapped_column(Integer, ForeignKey("todo_lists.id"), nullable=False)
     completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recurrence: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())

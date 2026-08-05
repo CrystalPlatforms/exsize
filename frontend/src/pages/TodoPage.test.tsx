@@ -19,6 +19,7 @@ vi.mock("@/api", async (importOriginal) => {
     editTodoItem: vi.fn(),
     deleteTodoItem: vi.fn(),
     setTodoItemDue: vi.fn(),
+    setTodoItemRecurrence: vi.fn(),
     getMe: vi.fn(),
     setToken: vi.fn(),
   };
@@ -34,6 +35,7 @@ import {
   editTodoItem as editTodoItemMock,
   deleteTodoItem as deleteTodoItemMock,
   setTodoItemDue as setTodoItemDueMock,
+  setTodoItemRecurrence as setTodoItemRecurrenceMock,
 } from "@/api";
 
 function renderTodoPage() {
@@ -51,12 +53,9 @@ function renderTodoPage() {
   );
 }
 
+const ITEM = { id: 1, title: "Mleko", completed: false, dueAt: null, recurrence: null };
 const EMPTY_LIST = { id: 1, name: "Zakupy", items: [] };
-const LIST_WITH_ITEM = {
-  id: 1,
-  name: "Zakupy",
-  items: [{ id: 1, title: "Mleko", completed: false, dueAt: null }],
-};
+const LIST_WITH_ITEM = { id: 1, name: "Zakupy", items: [ITEM] };
 
 describe("TodoPage", () => {
   beforeEach(() => {
@@ -98,6 +97,7 @@ describe("TodoPage", () => {
       title: "Chleb",
       completed: false,
       dueAt: null,
+      recurrence: null,
     });
 
     renderTodoPage();
@@ -107,7 +107,7 @@ describe("TodoPage", () => {
     await user.click(screen.getByRole("button", { name: /^add$/i }));
 
     await waitFor(() =>
-      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb", undefined),
+      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb", undefined, undefined),
     );
   });
 
@@ -119,6 +119,7 @@ describe("TodoPage", () => {
       title: "Mleko",
       completed: true,
       dueAt: null,
+      recurrence: null,
     });
 
     renderTodoPage();
@@ -139,6 +140,7 @@ describe("TodoPage", () => {
       title: "Mleko 2%",
       completed: false,
       dueAt: null,
+      recurrence: null,
     });
 
     renderTodoPage();
@@ -214,7 +216,7 @@ describe("TodoPage", () => {
         id: 1,
         name: "Zakupy",
         items: [
-          { id: 2, title: "Mleko", completed: false, dueAt: "2026-08-06T18:00:00" },
+          { id: 2, title: "Mleko", completed: false, dueAt: "2026-08-06T18:00:00", recurrence: null },
         ],
       },
     ]);
@@ -230,7 +232,7 @@ describe("TodoPage", () => {
       {
         id: 1,
         name: "Zakupy",
-        items: [{ id: 2, title: "Mleko", completed: false, dueAt: "2020-01-01T08:00:00" }],
+        items: [{ id: 2, title: "Mleko", completed: false, dueAt: "2020-01-01T08:00:00", recurrence: null }],
       },
     ]);
 
@@ -245,7 +247,7 @@ describe("TodoPage", () => {
       {
         id: 1,
         name: "Zakupy",
-        items: [{ id: 2, title: "Mleko", completed: false, dueAt: "2099-01-01T08:00:00" }],
+        items: [{ id: 2, title: "Mleko", completed: false, dueAt: "2099-01-01T08:00:00", recurrence: null }],
       },
     ]);
 
@@ -260,7 +262,7 @@ describe("TodoPage", () => {
       {
         id: 1,
         name: "Zakupy",
-        items: [{ id: 2, title: "Mleko", completed: true, dueAt: "2020-01-01T08:00:00" }],
+        items: [{ id: 2, title: "Mleko", completed: true, dueAt: "2020-01-01T08:00:00", recurrence: null }],
       },
     ]);
 
@@ -278,6 +280,7 @@ describe("TodoPage", () => {
       title: "Chleb",
       completed: false,
       dueAt: null,
+      recurrence: null,
     });
 
     renderTodoPage();
@@ -288,7 +291,7 @@ describe("TodoPage", () => {
     await user.click(screen.getByRole("button", { name: /^add$/i }));
 
     await waitFor(() =>
-      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb", "2026-08-06T12:00"),
+      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Chleb", "2026-08-06T12:00", undefined),
     );
   });
 
@@ -300,6 +303,7 @@ describe("TodoPage", () => {
       title: "Mleko",
       completed: false,
       dueAt: "2026-08-06T12:00:00",
+      recurrence: null,
     });
 
     renderTodoPage();
@@ -322,7 +326,7 @@ describe("TodoPage", () => {
         id: 1,
         name: "Zakupy",
         items: [
-          { id: 1, title: "Mleko", completed: false, dueAt: "2026-08-06T12:00:00" },
+          { id: 1, title: "Mleko", completed: false, dueAt: "2026-08-06T12:00:00", recurrence: null },
         ],
       },
     ]);
@@ -331,6 +335,7 @@ describe("TodoPage", () => {
       title: "Mleko",
       completed: false,
       dueAt: null,
+      recurrence: null,
     });
 
     renderTodoPage();
@@ -340,5 +345,106 @@ describe("TodoPage", () => {
     await user.click(screen.getByRole("button", { name: /clear due/i }));
 
     await waitFor(() => expect(setTodoItemDueMock).toHaveBeenCalledWith(1, null));
+  });
+
+  // --- Recurrence (issue #62) ---
+
+  it("adds a recurring item", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([EMPTY_LIST]);
+    vi.mocked(addTodoItemMock).mockResolvedValue({
+      id: 1,
+      title: "Lekarstwa",
+      completed: false,
+      dueAt: null,
+      recurrence: "daily",
+    });
+
+    renderTodoPage();
+    await screen.findByText("Zakupy");
+
+    await user.type(screen.getByLabelText(/add item to/i), "Lekarstwa");
+    await user.selectOptions(screen.getByLabelText(/repeats/i), "daily");
+    await user.click(screen.getByRole("button", { name: /^add$/i }));
+
+    await waitFor(() =>
+      expect(addTodoItemMock).toHaveBeenCalledWith(1, "Lekarstwa", undefined, "daily"),
+    );
+  });
+
+  it("shows a Repeats badge for a recurring item", async () => {
+    vi.mocked(getTodoListsMock).mockResolvedValue([
+      {
+        id: 1,
+        name: "Zakupy",
+        items: [{ id: 2, title: "Lekarstwa", completed: false, dueAt: null, recurrence: "weekly" }],
+      },
+    ]);
+
+    renderTodoPage();
+    await screen.findByText("Lekarstwa");
+
+    expect(screen.getByText(/repeats weekly/i)).toBeInTheDocument();
+  });
+
+  it("does not show a Repeats badge for a one-off item", async () => {
+    vi.mocked(getTodoListsMock).mockResolvedValue([LIST_WITH_ITEM]);
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    expect(screen.queryByText(/repeats (daily|weekly)/i)).not.toBeInTheDocument();
+  });
+
+  it("sets recurrence on an existing item", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([LIST_WITH_ITEM]);
+    vi.mocked(setTodoItemRecurrenceMock).mockResolvedValue({
+      id: 1,
+      title: "Mleko",
+      completed: false,
+      dueAt: null,
+      recurrence: "weekly",
+    });
+
+    renderTodoPage();
+    await screen.findByText("Mleko");
+
+    await user.click(screen.getByRole("button", { name: /set recurrence/i }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /set recurrence/i }),
+      "weekly",
+    );
+    await user.click(screen.getByRole("button", { name: /save recurrence/i }));
+
+    await waitFor(() =>
+      expect(setTodoItemRecurrenceMock).toHaveBeenCalledWith(1, "weekly"),
+    );
+  });
+
+  it("clears recurrence on an existing item", async () => {
+    const user = userEvent.setup();
+    vi.mocked(getTodoListsMock).mockResolvedValue([
+      {
+        id: 1,
+        name: "Zakupy",
+        items: [{ id: 1, title: "Lekarstwa", completed: false, dueAt: null, recurrence: "daily" }],
+      },
+    ]);
+    vi.mocked(setTodoItemRecurrenceMock).mockResolvedValue({
+      id: 1,
+      title: "Lekarstwa",
+      completed: false,
+      dueAt: null,
+      recurrence: null,
+    });
+
+    renderTodoPage();
+    await screen.findByText("Lekarstwa");
+
+    await user.click(screen.getByRole("button", { name: /set recurrence/i }));
+    await user.click(screen.getByRole("button", { name: /clear recurrence/i }));
+
+    await waitFor(() => expect(setTodoItemRecurrenceMock).toHaveBeenCalledWith(1, null));
   });
 });

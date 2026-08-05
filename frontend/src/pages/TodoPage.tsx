@@ -15,8 +15,20 @@ import {
   editTodoItem,
   deleteTodoItem,
   setTodoItemDue,
+  setTodoItemRecurrence,
   type TodoListResponse,
+  type TodoRecurrence,
 } from "@/api";
+
+const RECURRENCE_OPTIONS: TodoRecurrence[] = ["daily", "weekly"];
+
+function recurrenceBadge(recurrence: TodoRecurrence | null): { text: string; className: string } | null {
+  if (!recurrence) return null;
+  return {
+    text: `Repeats ${recurrence}`,
+    className: "rounded bg-purple-100 px-1.5 py-0.5 text-xs font-medium text-purple-700",
+  };
+}
 
 function formatDue(iso: string): string {
   const d = new Date(iso);
@@ -45,10 +57,15 @@ export default function TodoPage() {
     {},
   );
   const [newItemDue, setNewItemDue] = useState<Record<number, string>>({});
+  const [newItemRecurrence, setNewItemRecurrence] = useState<
+    Record<number, TodoRecurrence | undefined>
+  >({});
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [editItemTitle, setEditItemTitle] = useState("");
   const [dueItemId, setDueItemId] = useState<number | null>(null);
   const [dueValue, setDueValue] = useState("");
+  const [recurrenceItemId, setRecurrenceItemId] = useState<number | null>(null);
+  const [recurrenceValue, setRecurrenceValue] = useState<TodoRecurrence | "">("");
   const [renamingListId, setRenamingListId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deletingListId, setDeletingListId] = useState<number | null>(null);
@@ -87,12 +104,17 @@ export default function TodoPage() {
   });
 
   const addItemM = useMutation({
-    mutationFn: (v: { listId: number; title: string; dueAt?: string }) =>
-      addTodoItem(v.listId, v.title, v.dueAt),
+    mutationFn: (v: {
+      listId: number;
+      title: string;
+      dueAt?: string;
+      recurrence?: TodoRecurrence;
+    }) => addTodoItem(v.listId, v.title, v.dueAt, v.recurrence),
     onSuccess: (_data, vars) => {
       invalidate();
       setNewItemTitles((prev) => ({ ...prev, [vars.listId]: "" }));
       setNewItemDue((prev) => ({ ...prev, [vars.listId]: "" }));
+      setNewItemRecurrence((prev) => ({ ...prev, [vars.listId]: undefined }));
     },
   });
 
@@ -119,6 +141,15 @@ export default function TodoPage() {
     onSuccess: () => {
       invalidate();
       setDueItemId(null);
+    },
+  });
+
+  const setRecurrenceM = useMutation({
+    mutationFn: (v: { id: number; recurrence: TodoRecurrence | null }) =>
+      setTodoItemRecurrence(v.id, v.recurrence),
+    onSuccess: () => {
+      invalidate();
+      setRecurrenceItemId(null);
     },
   });
 
@@ -231,6 +262,7 @@ export default function TodoPage() {
                   listId: list.id,
                   title,
                   dueAt: newItemDue[list.id] || undefined,
+                  recurrence: newItemRecurrence[list.id],
                 });
               }}
             >
@@ -265,6 +297,30 @@ export default function TodoPage() {
                     }))
                   }
                 />
+              </div>
+              <div>
+                <Label htmlFor={`new-item-recurrence-${list.id}`} className="sr-only">
+                  Repeats
+                </Label>
+                <select
+                  id={`new-item-recurrence-${list.id}`}
+                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  value={newItemRecurrence[list.id] ?? ""}
+                  onChange={(e) =>
+                    setNewItemRecurrence((prev) => ({
+                      ...prev,
+                      [list.id]:
+                        (e.target.value as TodoRecurrence | "") || undefined,
+                    }))
+                  }
+                >
+                  <option value="">One-off</option>
+                  {RECURRENCE_OPTIONS.map((r) => (
+                    <option key={r} value={r}>
+                      {r === "daily" ? "Daily" : "Weekly"}
+                    </option>
+                  ))}
+                </select>
               </div>
               <Button type="submit" size="sm" disabled={addItemM.isPending}>
                 Add
@@ -332,6 +388,10 @@ export default function TodoPage() {
                         const badge = dueBadge(item);
                         return badge ? <span className={badge.className}>{badge.text}</span> : null;
                       })()}
+                      {(() => {
+                        const badge = recurrenceBadge(item.recurrence);
+                        return badge ? <span className={badge.className}>{badge.text}</span> : null;
+                      })()}
                       <Button
                         size="sm"
                         variant="outline"
@@ -353,6 +413,17 @@ export default function TodoPage() {
                         }}
                       >
                         Set due
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-label={`Set recurrence for "${item.title}"`}
+                        onClick={() => {
+                          setRecurrenceItemId(item.id);
+                          setRecurrenceValue(item.recurrence ?? "");
+                        }}
+                      >
+                        Set recurrence
                       </Button>
                       <Button
                         size="sm"
@@ -395,6 +466,56 @@ export default function TodoPage() {
                         size="sm"
                         variant="outline"
                         onClick={() => setDueItemId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                  {recurrenceItemId === item.id && (
+                    <div className="mt-2 flex w-full flex-wrap items-center gap-2">
+                      <Label htmlFor={`set-recurrence-${item.id}`} className="sr-only">
+                        Set recurrence
+                      </Label>
+                      <select
+                        id={`set-recurrence-${item.id}`}
+                        className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                        value={recurrenceValue}
+                        onChange={(e) =>
+                          setRecurrenceValue((e.target.value as TodoRecurrence | "") || "")
+                        }
+                      >
+                        <option value="">One-off</option>
+                        {RECURRENCE_OPTIONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r === "daily" ? "Daily" : "Weekly"}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        disabled={setRecurrenceM.isPending}
+                        onClick={() =>
+                          setRecurrenceM.mutate({
+                            id: item.id,
+                            recurrence: recurrenceValue || null,
+                          })
+                        }
+                      >
+                        Save recurrence
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          setRecurrenceM.mutate({ id: item.id, recurrence: null })
+                        }
+                      >
+                        Clear recurrence
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setRecurrenceItemId(null)}
                       >
                         Cancel
                       </Button>

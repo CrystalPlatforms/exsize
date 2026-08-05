@@ -141,6 +141,114 @@ def test_set_due_at_other_users_item_raises(db):
         service.set_due_at(foreign_item.id, datetime(2026, 8, 5, 18, 0))
 
 
+# --- Items: recurrence (issue #62) ---
+
+
+def test_add_item_with_recurrence_stores_it(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zdrowie")
+    due = datetime(2026, 8, 5, 9, 0)
+
+    item = service.add_item(todo_list.id, "Lekarstwa", due_at=due, recurrence="daily")
+
+    assert item.recurrence == "daily"
+    assert item.due_at == due
+
+
+def test_add_item_without_recurrence_is_none(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zakupy")
+
+    item = service.add_item(todo_list.id, "Mleko")
+
+    assert item.recurrence is None
+
+
+def test_set_recurrence_sets_rule_on_existing_item(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zdrowie")
+    item = service.add_item(todo_list.id, "Lekarstwa", due_at=datetime(2026, 8, 5, 9, 0))
+
+    updated = service.set_recurrence(item.id, "weekly")
+
+    assert updated.recurrence == "weekly"
+
+
+def test_set_recurrence_none_clears_rule(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zdrowie")
+    item = service.add_item(todo_list.id, "Lekarstwa", recurrence="daily")
+
+    updated = service.set_recurrence(item.id, None)
+
+    assert updated.recurrence is None
+
+
+def test_set_recurrence_other_users_item_raises(db):
+    other = _service(db, user_id=2)
+    other_list = other.create_list("Cudze")
+    foreign_item = other.add_item(other_list.id, "Nie moje")
+
+    service = _service(db, user_id=1)
+    with pytest.raises(TodoNotFound):
+        service.set_recurrence(foreign_item.id, "daily")
+
+
+# --- Items: advance overdue recurrences (issue #62, ścieżka overdue) ---
+
+
+def test_advance_overdue_spawns_next_for_recurring_overdue_item(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zdrowie")
+    past = datetime(2026, 8, 3, 9, 0)
+    item = service.add_item(todo_list.id, "Lekarstwa", due_at=past, recurrence="daily")
+
+    created = service.advance_overdue_recurrences(datetime(2026, 8, 5, 12, 0))
+
+    assert len(created) == 1
+    spawned = created[0]
+    assert spawned.title == "Lekarstwa"
+    assert spawned.due_at == datetime(2026, 8, 4, 9, 0)  # next_due(past, daily) = +1 dzień
+    assert spawned.recurrence == "daily"
+    assert spawned.completed is False
+
+    db.refresh(item)
+    assert item.completed is True
+
+
+def test_advance_overdue_ignores_non_recurring_overdue_item(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zakupy")
+    service.add_item(todo_list.id, "Mleko", due_at=datetime(2026, 8, 3, 9, 0))  # brak recurrence
+
+    created = service.advance_overdue_recurrences(datetime(2026, 8, 5, 12, 0))
+
+    assert created == []
+    assert len(service.list_items(todo_list.id)) == 1
+
+
+def test_advance_overdue_ignores_future_recurring_item(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zdrowie")
+    service.add_item(todo_list.id, "Lekarstwa", due_at=datetime(2026, 8, 10, 9, 0), recurrence="daily")
+
+    created = service.advance_overdue_recurrences(datetime(2026, 8, 5, 12, 0))
+
+    assert created == []
+
+
+def test_advance_overdue_is_scoped_to_owner(db):
+    other = _service(db, user_id=2)
+    other_list = other.create_list("Cudze")
+    other.add_item(other_list.id, "Nie moje", due_at=datetime(2026, 8, 3, 9, 0), recurrence="daily")
+
+    service = _service(db, user_id=1)
+
+    created = service.advance_overdue_recurrences(datetime(2026, 8, 5, 12, 0))
+
+    assert created == []
+
+
 # --- Items: query due <= moment (acceptance criterion #3) ---
 
 
@@ -175,6 +283,61 @@ def test_list_due_before_is_scoped_to_owner(db):
     result = service.list_due_before(datetime(2026, 8, 5, 12, 0))
 
     assert [item.id for item in result] == [mine_item.id]
+
+
+# --- Items: complete spawns next recurrence (issue #62) ---
+
+
+def test_complete_recurring_item_spawns_next_occurrence(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zdrowie")
+    due = datetime(2026, 8, 5, 9, 0)
+    item = service.add_item(todo_list.id, "Lekarstwa", due_at=due, recurrence="daily")
+
+    completed = service.complete_item(item.id)
+
+    assert completed.completed is True
+    assert completed.due_at == due  # stare wystąpienie zachowuje swój termin
+
+    items = service.list_items(todo_list.id)
+    assert len(items) == 2
+    spawned = next(i for i in items if not i.completed)
+    assert spawned.title == "Lekarstwa"
+    assert spawned.due_at == datetime(2026, 8, 6, 9, 0)  # +1 dzień
+    assert spawned.recurrence == "daily"
+    assert spawned.list_id == todo_list.id
+
+
+def test_complete_non_recurring_item_spawns_nothing(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zakupy")
+    item = service.add_item(todo_list.id, "Mleko", due_at=datetime(2026, 8, 5, 9, 0))
+
+    service.complete_item(item.id)
+
+    assert len(service.list_items(todo_list.id)) == 1
+
+
+def test_complete_recurring_item_without_due_spawns_nothing(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zakupy")
+    item = service.add_item(todo_list.id, "Mleko", recurrence="daily")
+
+    service.complete_item(item.id)
+
+    assert len(service.list_items(todo_list.id)) == 1
+
+
+def test_uncompleting_recurring_item_spawns_nothing(db):
+    service = _service(db, user_id=1)
+    todo_list = service.create_list("Zdrowie")
+    item = service.add_item(todo_list.id, "Lekarstwa", due_at=datetime(2026, 8, 5, 9, 0), recurrence="daily")
+    service.complete_item(item.id)  # odhaczenie -> spawn (1 nowe wystąpienie)
+    count_after_complete = len(service.list_items(todo_list.id))
+
+    service.complete_item(item.id)  # odkliknięcie z powrotem -> nie spawnuje dodatkowego
+
+    assert len(service.list_items(todo_list.id)) == count_after_complete
 
 
 # --- Items: complete (toggle) ---

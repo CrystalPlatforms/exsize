@@ -273,3 +273,80 @@ def test_user_cannot_complete_other_users_item(client):
 def test_requires_authentication(client):
     resp = client.get("/api/todo/lists")
     assert resp.status_code == 401
+
+
+# --- Recurrence (issue #62) ---
+
+
+def test_add_item_with_recurrence_returns_it(client):
+    token = _register_and_login(client, email="alice@example.com")
+    todo_list = client.post("/api/todo/lists", json={"name": "Zakupy"}, headers=_auth(token)).json()
+
+    resp = client.post(
+        f"/api/todo/lists/{todo_list['id']}/items",
+        json={"title": "Lekarstwa", "due_at": "2026-08-05T09:00:00", "recurrence": "daily"},
+        headers=_auth(token),
+    )
+
+    assert resp.status_code == 201
+    assert resp.json()["recurrence"] == "daily"
+
+
+def test_add_item_without_recurrence_returns_null(client):
+    token = _register_and_login(client, email="alice@example.com")
+    todo_list = client.post("/api/todo/lists", json={"name": "Zakupy"}, headers=_auth(token)).json()
+
+    resp = client.post(
+        f"/api/todo/lists/{todo_list['id']}/items", json={"title": "Mleko"}, headers=_auth(token),
+    )
+
+    assert resp.json()["recurrence"] is None
+
+
+def test_set_recurrence_endpoint_sets_rule(client):
+    token = _register_and_login(client, email="alice@example.com")
+    todo_list = client.post("/api/todo/lists", json={"name": "Zakupy"}, headers=_auth(token)).json()
+    item = client.post(
+        f"/api/todo/lists/{todo_list['id']}/items", json={"title": "Lekarstwa"}, headers=_auth(token),
+    ).json()
+
+    resp = client.patch(
+        f"/api/todo/items/{item['id']}/recurrence", json={"recurrence": "weekly"}, headers=_auth(token),
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["recurrence"] == "weekly"
+
+
+def test_set_recurrence_endpoint_rejects_unknown_rule(client):
+    token = _register_and_login(client, email="alice@example.com")
+    todo_list = client.post("/api/todo/lists", json={"name": "Zakupy"}, headers=_auth(token)).json()
+    item = client.post(
+        f"/api/todo/lists/{todo_list['id']}/items", json={"title": "Lekarstwa"}, headers=_auth(token),
+    ).json()
+
+    resp = client.patch(
+        f"/api/todo/items/{item['id']}/recurrence", json={"recurrence": "monthly"}, headers=_auth(token),
+    )
+
+    assert resp.status_code == 422
+
+
+def test_complete_recurring_item_creates_next_occurrence(client):
+    token = _register_and_login(client, email="alice@example.com")
+    todo_list = client.post("/api/todo/lists", json={"name": "Zakupy"}, headers=_auth(token)).json()
+    item = client.post(
+        f"/api/todo/lists/{todo_list['id']}/items",
+        json={"title": "Lekarstwa", "due_at": "2026-08-05T09:00:00", "recurrence": "daily"},
+        headers=_auth(token),
+    ).json()
+
+    client.patch(f"/api/todo/items/{item['id']}/complete", headers=_auth(token))
+
+    lists = client.get("/api/todo/lists", headers=_auth(token)).json()
+    items = lists[0]["items"]
+    assert len(items) == 2
+    open_items = [i for i in items if not i["completed"]]
+    assert len(open_items) == 1
+    assert open_items[0]["due_at"] == "2026-08-06T09:00:00"
+    assert open_items[0]["recurrence"] == "daily"
