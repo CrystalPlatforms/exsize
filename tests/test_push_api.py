@@ -124,3 +124,56 @@ def test_unsubscribe_is_scoped_to_owner(client):
     db = next(client.app.dependency_overrides[get_db]())
     rows = db.query(PushSubscription).all()
     assert len(rows) == 1  # Alice's subscription survived Bob's unsubscribe attempt
+
+
+# --- B8: run-reminders triggers a sweep and returns the summary ---
+
+
+def test_run_reminders_returns_summary_when_authenticated(client, monkeypatch):
+    monkeypatch.setattr(
+        "exsize.routers.push.run_reminders_once",
+        lambda: {"sent": 2, "removed": 1},
+    )
+    token = _register_and_login(client, email="frank@example.com")
+
+    resp = client.post("/api/push/run-reminders", headers=_auth(token))
+
+    assert resp.status_code == 200
+    assert resp.json() == {"sent": 2, "removed": 1}
+
+
+# --- B9: run-reminders requires authentication ---
+
+
+def test_run_reminders_requires_authentication(client):
+    assert client.post("/api/push/run-reminders").status_code in (401, 403)
+
+
+# --- B10: run-reminders accepts a shared secret (for external cron) ---
+
+
+def test_run_reminders_accepts_shared_secret_without_login(client, monkeypatch):
+    monkeypatch.setattr(
+        "exsize.routers.push.run_reminders_once",
+        lambda: {"sent": 1, "removed": 0},
+    )
+    monkeypatch.setenv("REMINDER_TRIGGER_TOKEN", "s3cret-cron-token")
+
+    resp = client.post(
+        "/api/push/run-reminders",
+        headers={"X-Reminder-Token": "s3cret-cron-token"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"sent": 1, "removed": 0}
+
+
+def test_run_reminders_rejects_wrong_shared_secret(client, monkeypatch):
+    monkeypatch.setenv("REMINDER_TRIGGER_TOKEN", "s3cret-cron-token")
+
+    resp = client.post(
+        "/api/push/run-reminders",
+        headers={"X-Reminder-Token": "wrong"},
+    )
+
+    assert resp.status_code == 401

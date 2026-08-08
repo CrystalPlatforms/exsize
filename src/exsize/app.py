@@ -13,6 +13,7 @@ from exsize.database import Base, engine, SessionLocal
 from exsize.models import AppSetting, AvatarItem, User
 from exsize.routers import account, admin_settings, auth, avatar, cryplo, dashboard, exbucks, family, gamification, leaderboard, profile, push, settings, subscription, tasks, todo
 from exsize.security import hash_password
+from exsize.services.scheduler import start_reminder_scheduler
 
 
 def _seed_app_settings(db: Session) -> None:
@@ -78,7 +79,12 @@ async def lifespan(app: FastAPI):
         _seed_avatar_items(db)
     finally:
         db.close()
-    yield
+    reminder_task = start_reminder_scheduler()
+    try:
+        yield
+    finally:
+        if reminder_task is not None:
+            reminder_task.cancel()
 
 
 app = FastAPI(title="ExSize", lifespan=lifespan)

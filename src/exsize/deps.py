@@ -23,6 +23,24 @@ def get_current_user(
     return user
 
 
+optional_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def get_optional_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Like :func:`get_current_user` but returns ``None`` when no/invalid token is
+    present instead of raising — used by endpoints that also accept a shared secret."""
+    if credentials is None:
+        return None
+    try:
+        user_id = decode_access_token(credentials.credentials)
+    except Exception:
+        return None
+    return db.query(User).filter(User.id == user_id).first()
+
+
 def has_sizepass(family_id: int | None, db: Session) -> bool:
     if family_id is None:
         return False

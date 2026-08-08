@@ -7,6 +7,9 @@ export const pwaConfig: Partial<VitePWAOptions> = {
   devOptions: { enabled: true },
   workbox: {
     globPatterns: ["**/*.{html,js,css,ico,png,svg,woff2}"],
+    // Wczytuje nasze handlery push/notificationclick do wygenerowanego SW,
+    // bez przełączania generateSW -> injectManifest (cachowanie zostaje).
+    importScripts: ["/sw-push.js"],
     navigateFallback: "/offline.html",
     navigateFallbackDenylist: [/^\/api\//],
     runtimeCaching: [
