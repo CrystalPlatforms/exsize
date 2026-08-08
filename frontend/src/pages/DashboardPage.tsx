@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Avatar from "@/components/Avatar";
-import { getDashboard, getEquippedAvatar, type UserResponse, type DashboardDayChild } from "@/api";
+import { getDashboard, getEquippedAvatar, type UserResponse } from "@/api";
 
 interface DashboardPageProps {
   user: UserResponse;
@@ -25,7 +25,7 @@ function ChildAvatar({ childId }: { childId: number }) {
   );
 }
 
-export default function DashboardPage({ user }: DashboardPageProps) {
+export default function DashboardPage({ user: _user }: DashboardPageProps) {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard"],
     queryFn: getDashboard,

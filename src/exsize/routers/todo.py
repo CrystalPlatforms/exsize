@@ -5,6 +5,8 @@ translates TodoNotFound into 404. Lists and items belong to the authenticated
 user — no family required.
 """
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 

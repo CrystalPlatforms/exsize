@@ -42,7 +42,7 @@ export function usePushNotifications() {
       const registration = await navigator.serviceWorker.ready;
       const sub = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(public_key),
+        applicationServerKey: urlBase64ToUint8Array(public_key) as BufferSource,
       });
       // PushSubscription serializes to { endpoint, keys: { p256dh, auth } }.
       const json = JSON.parse(JSON.stringify(sub)) as {

@@ -10,7 +10,7 @@ interface AdminSettingsPageProps {
   user: UserResponse;
 }
 
-export default function AdminSettingsPage({ user }: AdminSettingsPageProps) {
+export default function AdminSettingsPage({ user: _user }: AdminSettingsPageProps) {
   const queryClient = useQueryClient();
   const [maxExbucks, setMaxExbucks] = useState("");
 
