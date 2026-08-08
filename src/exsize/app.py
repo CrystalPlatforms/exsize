@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from exsize.database import Base, engine, SessionLocal
 from exsize.models import AppSetting, AvatarItem, User
-from exsize.routers import account, admin_settings, auth, avatar, cryplo, dashboard, exbucks, family, gamification, leaderboard, profile, settings, subscription, tasks, todo
+from exsize.routers import account, admin_settings, auth, avatar, cryplo, dashboard, exbucks, family, gamification, leaderboard, profile, push, settings, subscription, tasks, todo
 from exsize.security import hash_password
 
 
@@ -106,5 +106,6 @@ app.include_router(leaderboard.router)
 app.include_router(profile.router)
 app.include_router(settings.router)
 app.include_router(subscription.router)
+app.include_router(push.router)
 app.include_router(tasks.router)
 app.include_router(todo.router)

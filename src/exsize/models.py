@@ -155,3 +155,14 @@ class TodoItem(Base):
     due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     recurrence: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    endpoint: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    p256dh: Mapped[str] = mapped_column(String, nullable=False)
+    auth: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[str] = mapped_column(DateTime, nullable=False, server_default=func.now())

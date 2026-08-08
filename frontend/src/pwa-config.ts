@@ -2,6 +2,9 @@ import type { VitePWAOptions } from "vite-plugin-pwa"
 
 export const pwaConfig: Partial<VitePWAOptions> = {
   registerType: "autoUpdate",
+  // Service workers (required for push) are off by default in `vite dev`.
+  // Enable them locally so push notifications can be exercised in dev.
+  devOptions: { enabled: true },
   workbox: {
     globPatterns: ["**/*.{html,js,css,ico,png,svg,woff2}"],
     navigateFallback: "/offline.html",

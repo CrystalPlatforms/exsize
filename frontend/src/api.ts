@@ -639,3 +639,37 @@ export function setTodoItemRecurrence(
 export function deleteTodoItem(itemId: number) {
   return apiFetch<void>(`/api/todo/items/${itemId}`, { method: "DELETE" });
 }
+
+// --- Push notifications (ExSize 2.0, issue #64) ---
+
+export interface PushPublicKeyResponse {
+  public_key: string;
+}
+
+export interface PushSubscriptionKeys {
+  p256dh: string;
+  auth: string;
+}
+
+export interface PushSubscribeRequest {
+  endpoint: string;
+  keys: PushSubscriptionKeys;
+}
+
+export function getVapidPublicKey() {
+  return apiFetch<PushPublicKeyResponse>("/api/push/vapid-public-key");
+}
+
+export function subscribePush(data: PushSubscribeRequest) {
+  return apiFetch<{ detail: string }>("/api/push/subscribe", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function unsubscribePush(endpoint: string) {
+  return apiFetch<{ detail: string }>("/api/push/unsubscribe", {
+    method: "POST",
+    body: JSON.stringify({ endpoint }),
+  });
+}

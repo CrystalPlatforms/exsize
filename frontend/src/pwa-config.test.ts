@@ -34,6 +34,10 @@ describe("PWA config", () => {
     expect(pwaConfig.registerType).toBe("autoUpdate")
   })
 
+  it("enables the service worker in dev so push can be tested locally", () => {
+    expect(pwaConfig.devOptions?.enabled).toBe(true)
+  })
+
   it("precaches app shell files via workbox globPatterns", () => {
     const patterns = pwaConfig.workbox?.globPatterns
     expect(patterns).toBeDefined()

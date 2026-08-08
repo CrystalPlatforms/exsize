@@ -15,6 +15,7 @@ import {
   type UserResponse,
 } from "@/api";
 import { useAuth } from "@/auth";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 function NicknameCard({ currentNickname }: { currentNickname: string | null }) {
   const [nickname, setNicknameValue] = useState(currentNickname ?? "");
@@ -57,6 +58,61 @@ function NicknameCard({ currentNickname }: { currentNickname: string | null }) {
 
 interface SettingsPageProps {
   user: UserResponse;
+}
+
+function PushNotificationsCard() {
+  const { isSupported, permission, isSubscribed, error, enable, disable } =
+    usePushNotifications();
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Push Notifications</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!isSupported ? (
+          <p className="text-sm text-muted-foreground">
+            Push notifications are not supported on this device.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Get reminders for due To-Do items, even when the app is closed.
+            </p>
+            {error && (
+              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            )}
+            {permission === "denied" ? (
+              <p className="text-sm">
+                Notifications are blocked. Update permissions in your browser
+                settings.
+              </p>
+            ) : isSubscribed ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-950 dark:text-green-300">
+                  On
+                </span>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] sm:min-h-0"
+                  onClick={disable}
+                >
+                  Disable Notifications
+                </Button>
+              </div>
+            ) : (
+              <Button
+                className="min-h-[44px] sm:min-h-0"
+                onClick={enable}
+              >
+                Enable Notifications
+              </Button>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function SettingsPage({ user }: SettingsPageProps) {
@@ -143,6 +199,7 @@ export default function SettingsPage({ user }: SettingsPageProps) {
           )}
         </CardContent>
       </Card>
+      <PushNotificationsCard />
       <Card>
         <CardHeader>
           <CardTitle>Account</CardTitle>

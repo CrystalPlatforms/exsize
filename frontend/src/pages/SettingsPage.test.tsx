@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,9 +21,20 @@ vi.mock("@/api", async (importOriginal) => {
   };
 });
 
+const pushState = {
+  isSupported: true,
+  permission: "default" as NotificationPermission,
+  isSubscribed: false,
+  error: null as string | null,
+  enable: vi.fn(),
+  disable: vi.fn(),
+};
+vi.mock("@/hooks/usePushNotifications", () => ({
+  usePushNotifications: () => pushState,
+}));
+
 import {
   getSubscription as getSubscriptionMock,
-  cancelSubscription as cancelSubscriptionMock,
   requestAccountDeletion as requestAccountDeletionMock,
   deleteOwnAccount as deleteOwnAccountMock,
   getProfile as getProfileMock,
@@ -55,6 +66,12 @@ function renderSettings(role: "parent" | "child" = "parent") {
 describe("SettingsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    pushState.isSupported = true;
+    pushState.permission = "default";
+    pushState.isSubscribed = false;
+    pushState.error = null;
+    pushState.enable = vi.fn();
+    pushState.disable = vi.fn();
   });
 
   it("shows Free plan status for free users", async () => {
@@ -362,6 +379,61 @@ describe("SettingsPage", () => {
 
       const cancelBtn = await screen.findByRole("button", { name: /cancel subscription/i });
       expect(cancelBtn.className).toMatch(/min-h-\[44px\]/);
+    });
+  });
+
+  describe("push notifications", () => {
+    it("renders the push card with an Enable button when supported and not subscribed", async () => {
+      vi.mocked(getSubscriptionMock).mockResolvedValue({ plan: "free", status: "free" });
+
+      renderSettings("parent");
+
+      expect(await screen.findByText(/push notifications/i)).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /enable notifications/i }),
+      ).toBeInTheDocument();
+    });
+
+    it("clicking Enable calls the hook's enable()", async () => {
+      const user = userEvent.setup();
+      vi.mocked(getSubscriptionMock).mockResolvedValue({ plan: "free", status: "free" });
+
+      renderSettings("parent");
+
+      await user.click(await screen.findByRole("button", { name: /enable notifications/i }));
+      expect(pushState.enable).toHaveBeenCalled();
+    });
+
+    it("shows a Disable button when subscribed and calls disable() on click", async () => {
+      const user = userEvent.setup();
+      vi.mocked(getSubscriptionMock).mockResolvedValue({ plan: "free", status: "free" });
+      pushState.isSubscribed = true;
+
+      renderSettings("parent");
+
+      await user.click(await screen.findByRole("button", { name: /disable notifications/i }));
+      expect(pushState.disable).toHaveBeenCalled();
+    });
+
+    it("shows an unsupported message instead of a toggle when push is unavailable", async () => {
+      vi.mocked(getSubscriptionMock).mockResolvedValue({ plan: "free", status: "free" });
+      pushState.isSupported = false;
+
+      renderSettings("parent");
+
+      expect(await screen.findByText(/not supported on this device/i)).toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: /enable notifications/i }),
+      ).not.toBeInTheDocument();
+    });
+
+    it("surfaces the push error message when enabling fails", async () => {
+      vi.mocked(getSubscriptionMock).mockResolvedValue({ plan: "free", status: "free" });
+      pushState.error = "Push not configured";
+
+      renderSettings("parent");
+
+      expect(await screen.findByText("Push not configured")).toBeInTheDocument();
     });
   });
 });
