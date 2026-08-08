@@ -174,4 +174,17 @@ describe("usePushNotifications", () => {
     expect(result.current.error).toBeNull();
     expect(result.current.isSubscribed).toBe(true);
   });
+
+  it("F7: reflects an existing browser subscription as On on mount (persists across Settings visits)", async () => {
+    setupBrowser({
+      permission: "granted",
+      existingEndpoint: "https://push.example/send/existing",
+    });
+    const { result } = renderHook(() => usePushNotifications());
+
+    await waitFor(() => {
+      expect(result.current.isSubscribed).toBe(true);
+    });
+    expect(subscribePush).not.toHaveBeenCalled(); // bez ponownej rejestracji
+  });
 });

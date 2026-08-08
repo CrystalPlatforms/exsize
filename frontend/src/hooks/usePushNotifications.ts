@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getVapidPublicKey, subscribePush, unsubscribePush } from "@/api";
 
 /**Convert a base64url VAPID public key into the Uint8Array the Push API expects.*/
@@ -27,6 +27,24 @@ export function usePushNotifications() {
   );
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sync the toggle with the browser's actual subscription on mount, so leaving
+  // and re-entering Settings doesn't falsely show "off" while push is still live.
+  useEffect(() => {
+    if (!pushSupported()) return;
+    let active = true;
+    navigator.serviceWorker.ready
+      .then((registration) => registration.pushManager.getSubscription())
+      .then((sub) => {
+        if (active) setIsSubscribed(sub !== null);
+      })
+      .catch(() => {
+        /* brak subskrypcji to nie błąd — zostaw domyślne false */
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const enable = useCallback(async () => {
     if (!pushSupported()) return;
