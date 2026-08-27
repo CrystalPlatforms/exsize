@@ -240,7 +240,7 @@ describe("AuthModal", () => {
     const button = screen.getByRole("button", { name: /continue with google/i });
     await user.click(button);
     expect(
-      screen.getByText(/google login is not configured on the server/i),
+      await screen.findByText(/google login is not configured on the server/i),
     ).toBeInTheDocument();
     expect(window.location.href).not.toContain("/api/auth/google/authorize");
   });

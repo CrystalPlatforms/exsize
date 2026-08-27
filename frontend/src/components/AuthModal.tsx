@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -26,16 +26,9 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminSecret, setAdminSecret] = useState("");
-  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [googleErrorLocal, setGoogleErrorLocal] = useState<string | null>(null);
   const { isLoading, isSlow, error, execute } = useLoading();
   const { handleLogin } = useAuth();
-
-  useEffect(() => {
-    googleLoginStatus()
-      .then((status) => setGoogleEnabled(status.enabled))
-      .catch(() => {});
-  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -112,14 +105,21 @@ function LoginForm() {
         variant="outline"
         className="w-full"
         disabled={isLoading}
-        onClick={() => {
-          if (!googleEnabled) {
-            setGoogleErrorLocal(
-              "Google login is not configured on the server. Use email and password.",
-            );
-            return;
+        onClick={async () => {
+          // Re-check on click: the mount-time check may have hit a cold-started
+          // (sleeping) server and failed — Render free tier wakes in ~30 s.
+          try {
+            const status = await googleLoginStatus();
+            if (status.enabled) {
+              window.location.href = `${API_URL}/api/auth/google/authorize`;
+              return;
+            }
+          } catch {
+            // fall through to the message below
           }
-          window.location.href = `${API_URL}/api/auth/google/authorize`;
+          setGoogleErrorLocal(
+            "Google login is not configured on the server. Use email and password.",
+          );
         }}
       >
         <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
