@@ -10,6 +10,7 @@ load_dotenv()
 from sqlalchemy.orm import Session
 
 from exsize.database import Base, engine, SessionLocal
+from exsize.mcp_server import mcp_asgi_app
 from exsize.models import AppSetting, AvatarItem, User
 from exsize.routers import account, admin_settings, auth, avatar, cryplo, dashboard, exbucks, family, gamification, leaderboard, profile, push, settings, subscription, tasks, todo
 from exsize.security import hash_password
@@ -81,7 +82,10 @@ async def lifespan(app: FastAPI):
         db.close()
     reminder_task = start_reminder_scheduler()
     try:
-        yield
+        # MCP session manager (mounted below) — Starlette does not run a mounted
+        # sub-app's lifespan, so it must be started here explicitly.
+        async with mcp_asgi_app.lifespan(mcp_asgi_app):
+            yield
     finally:
         if reminder_task is not None:
             reminder_task.cancel()
@@ -115,3 +119,6 @@ app.include_router(subscription.router)
 app.include_router(push.router)
 app.include_router(tasks.router)
 app.include_router(todo.router)
+
+# MCP server (Streamable HTTP) under /mcp — mounted last so /api routes match first.
+app.mount("/", mcp_asgi_app)

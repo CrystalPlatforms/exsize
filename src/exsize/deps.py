@@ -3,8 +3,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from exsize.database import get_db
-from exsize.models import Subscription, User
-from exsize.security import decode_access_token
+from exsize.models import ApiToken, Subscription, User
+from exsize.security import decode_access_token, verify_password
 
 bearer_scheme = HTTPBearer()
 
@@ -48,3 +48,15 @@ def has_sizepass(family_id: int | None, db: Session) -> bool:
         Subscription.family_id == family_id,
         Subscription.status == "active",
     ).first() is not None
+
+
+def resolve_api_token_user(db: Session, raw_token: str) -> User | None:
+    """Match a raw API token (``exs_...``) against stored bcrypt hashes.
+
+    Returns the owner of the first active (non-revoked) token that verifies,
+    or None. Shared by the Cryplo API and the MCP server (issue #66).
+    """
+    for api_token in db.query(ApiToken).filter(ApiToken.revoked_at.is_(None)).all():
+        if verify_password(raw_token, api_token.token_hash):
+            return db.query(User).filter(User.id == api_token.user_id).first()
+    return None

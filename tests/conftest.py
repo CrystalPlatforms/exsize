@@ -2,6 +2,10 @@ import os
 
 os.environ.setdefault("ADMIN_SECRET", "test-admin-secret")
 os.environ.setdefault("CORS_ORIGINS", "https://exsize.pages.dev")
+# Must be set before importing exsize.app: MCP tools (mcp_server) resolve the DB
+# via SessionLocal directly, so the app-level engine has to point at the same
+# test database as the fixture engine below. load_dotenv() will not override it.
+os.environ["DATABASE_URL"] = "sqlite:///test.db"
 
 import pytest
 from fastapi.testclient import TestClient

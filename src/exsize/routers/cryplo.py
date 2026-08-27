@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from exsize.database import get_db
-from exsize.deps import get_current_user
+from exsize.deps import get_current_user, resolve_api_token_user
 from exsize.models import ApiToken, CryploTransfer, User
 from exsize.security import hash_password, verify_password
 
@@ -93,13 +93,10 @@ def _get_user_from_api_token(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    raw = credentials.credentials
-    for api_token in db.query(ApiToken).filter(ApiToken.revoked_at.is_(None)).all():
-        if verify_password(raw, api_token.token_hash):
-            user = db.query(User).filter(User.id == api_token.user_id).first()
-            if user:
-                return user
-    raise HTTPException(status_code=401, detail="Invalid API token")
+    user = resolve_api_token_user(db, credentials.credentials)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid API token")
+    return user
 
 
 class BalanceResponse(BaseModel):

@@ -12,6 +12,7 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "psycopg2-binary>=2.9.11",
     "pywebpush>=2.4.0",
+    "fastmcp>=3.4.7",
 ]
 
 [dependency-groups]
