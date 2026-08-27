@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "@/auth";
@@ -19,7 +20,21 @@ import AuthModal from "@/components/AuthModal";
 const queryClient = new QueryClient();
 
 function AppRoutes() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, handleLogin } = useAuth();
+
+  // Google login comes back from the backend with the app JWT in the URL
+  // fragment (#token=...); adopt it, then scrub it from the address bar.
+  useEffect(() => {
+    const match = window.location.hash.match(/token=([^&]+)/);
+    if (match) {
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
+      handleLogin(decodeURIComponent(match[1])).catch(() => {});
+    }
+  }, [handleLogin]);
 
   if (!isAuthenticated || !user) {
     return <AuthModal />;

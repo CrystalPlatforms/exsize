@@ -12,6 +12,7 @@ vi.mock("@/api", async (importOriginal) => {
     getMe: vi.fn(),
     setToken: vi.fn(),
     getToken: vi.fn(() => null),
+    googleLoginStatus: vi.fn(() => Promise.resolve({ enabled: false })),
   };
 });
 
@@ -21,6 +22,7 @@ import {
   adminLogin as adminLoginMock,
   register as registerMock,
   getMe as getMeMock,
+  googleLoginStatus as googleStatusMock,
 } from "@/api";
 
 function renderApp(route = "/") {
@@ -223,5 +225,23 @@ describe("AuthModal", () => {
     renderApp();
     window.history.back();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("always shows Continue with Google when the backend enables it", async () => {
+    vi.mocked(googleStatusMock).mockResolvedValue({ enabled: true });
+    renderApp();
+    expect(await screen.findByRole("button", { name: /continue with google/i })).toBeInTheDocument();
+  });
+
+  it("keeps Continue with Google visible without keys and explains on click", async () => {
+    const user = userEvent.setup();
+    vi.mocked(googleStatusMock).mockResolvedValue({ enabled: false });
+    renderApp();
+    const button = screen.getByRole("button", { name: /continue with google/i });
+    await user.click(button);
+    expect(
+      screen.getByText(/google login is not configured on the server/i),
+    ).toBeInTheDocument();
+    expect(window.location.href).not.toContain("/api/auth/google/authorize");
   });
 });

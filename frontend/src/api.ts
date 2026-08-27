@@ -1,3 +1,5 @@
+export const API_URL: string = import.meta.env.VITE_API_URL ?? "";
+
 let token: string | null = null;
 
 export function setToken(t: string | null) {
@@ -19,7 +21,7 @@ export async function apiFetch<T>(
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
-  const base = import.meta.env.VITE_API_URL ?? "";
+  const base = API_URL;
   const res = await fetch(`${base}${path}`, { ...options, headers });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -672,4 +674,12 @@ export function unsubscribePush(endpoint: string) {
     method: "POST",
     body: JSON.stringify({ endpoint }),
   });
+}
+
+export interface GoogleStatusResponse {
+  enabled: boolean;
+}
+
+export function googleLoginStatus() {
+  return apiFetch<GoogleStatusResponse>("/api/auth/google/status");
 }

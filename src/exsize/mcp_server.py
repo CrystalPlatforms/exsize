@@ -21,7 +21,6 @@ existing router functions, so every business rule lives in exactly one place.
 """
 
 import os
-import secrets
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Literal
@@ -53,7 +52,7 @@ from exsize.routers.tasks import (
     list_tasks,
     reject_task,
 )
-from exsize.security import hash_password
+from exsize.services.google_oauth import resolve_google_user
 from exsize.services.todo import TodoNotFound, TodoService
 
 
@@ -136,24 +135,7 @@ def build_auth():
 
 
 def _resolve_google_caller(db: Session, email: str) -> User:
-    """Map a verified Google email onto an ExSize account.
-
-    An existing account wins (register in the web app with the same email BEFORE
-    the first Google login to adopt it); unknown emails get an auto-created
-    child account with language pl and a random unusable password (web login
-    stays impossible until a reset is built)."""
-    user = db.query(User).filter(User.email == email.lower()).first()
-    if user is None:
-        user = User(
-            email=email.lower(),
-            password_hash=hash_password(secrets.token_urlsafe(32)),
-            role="child",
-            language="pl",
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
+    return resolve_google_user(db, email)
 
 
 mcp = FastMCP(

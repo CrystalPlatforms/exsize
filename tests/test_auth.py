@@ -224,3 +224,100 @@ def test_phone_number_can_be_cleared_with_null(client):
     })
     assert cleared.status_code == 200
     assert cleared.json()["phone_number"] is None
+
+
+# --- Google web login (redirect flow; mapping shared with MCP, issue #76).
+# Assumptions: config comes from GOOGLE_CLIENT_ID/SECRET + MCP_BASE_URL env;
+# the state is a short-lived signed JWT; on success the callback hands the app
+# JWT to the SPA via a URL fragment on the first CORS origin; every failure
+# lands back on the SPA with ?google_error=<reason>. Google's HTTP is a
+# boundary — mocked here; account mapping itself is covered by test_mcp.py.
+
+
+def _enable_google(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "GOCSPX-test")
+    monkeypatch.setenv("MCP_BASE_URL", "https://exsize-prod.onrender.com/mcp")
+
+
+def test_google_status_is_disabled_without_keys(client, monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+    response = client.get("/api/auth/google/status")
+    assert response.status_code == 200
+    assert response.json() == {"enabled": False}
+
+
+def test_google_status_is_enabled_with_keys(client, monkeypatch):
+    _enable_google(monkeypatch)
+    assert client.get("/api/auth/google/status").json() == {"enabled": True}
+
+
+def test_google_authorize_requires_configuration(client, monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    assert client.get("/api/auth/google/authorize").status_code == 404
+
+
+def test_google_authorize_redirects_to_consent_screen(client, monkeypatch):
+    from exsize.services import google_oauth
+
+    _enable_google(monkeypatch)
+    response = client.get("/api/auth/google/authorize", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    location = response.headers["location"]
+    assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+    assert "client_id=test-id.apps.googleusercontent.com" in location
+    assert (
+        "redirect_uri=https%3A%2F%2Fexsize-prod.onrender.com%2Fapi%2Fauth%2Fgoogle%2Fcallback"
+        in location
+    )
+    state = location.split("state=")[1].split("&")[0]
+    assert google_oauth.verify_state(state) is True
+
+
+def test_google_callback_rejects_forged_state(client, monkeypatch):
+    _enable_google(monkeypatch)
+    response = client.get(
+        "/api/auth/google/callback",
+        params={"code": "x", "state": "forged"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 307)
+    assert "google_error=invalid_state" in response.headers["location"]
+
+
+def test_google_callback_passes_google_errors_to_the_app(client, monkeypatch):
+    _enable_google(monkeypatch)
+    response = client.get(
+        "/api/auth/google/callback",
+        params={"error": "access_denied"},
+        follow_redirects=False,
+    )
+    assert "google_error=access_denied" in response.headers["location"]
+
+
+def test_google_callback_hands_app_token_for_existing_account(client, monkeypatch):
+    from exsize.security import decode_access_token
+    from exsize.services import google_oauth
+
+    _enable_google(monkeypatch)
+    registered = client.post("/api/auth/register", json={
+        "email": "google@test.pl", "password": "mypassword", "role": "parent",
+    })
+    user_id = registered.json()["id"]
+
+    async def fake_exchange(code):
+        return {"email": "google@test.pl"}
+
+    monkeypatch.setattr(google_oauth, "exchange_code", fake_exchange)
+
+    authorize = client.get("/api/auth/google/authorize", follow_redirects=False)
+    state = authorize.headers["location"].split("state=")[1].split("&")[0]
+    callback = client.get(
+        "/api/auth/google/callback",
+        params={"code": "the-code", "state": state},
+        follow_redirects=False,
+    )
+    location = callback.headers["location"]
+    assert location.startswith("https://exsize.pages.dev/#token=")
+    assert decode_access_token(location.split("#token=")[1]) == user_id

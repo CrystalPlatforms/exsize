@@ -2,6 +2,7 @@ import os
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -9,6 +10,7 @@ from exsize.database import get_db
 from exsize.deps import get_current_user
 from exsize.models import User
 from exsize.security import create_access_token, hash_password, verify_password
+from exsize.services import google_oauth
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -86,3 +88,58 @@ def admin_login(body: AdminLoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 def me(user: User = Depends(get_current_user)):
     return user
+
+
+# --- Google login (redirect flow; account mapping shared with MCP, issue #76) ---
+
+
+class GoogleStatusResponse(BaseModel):
+    enabled: bool
+
+
+@router.get("/google/status", response_model=GoogleStatusResponse)
+def google_status():
+    return GoogleStatusResponse(enabled=google_oauth.configured())
+
+
+@router.get("/google/authorize")
+def google_authorize():
+    """Send the browser to Google's consent screen (302)."""
+    if not google_oauth.configured():
+        raise HTTPException(status_code=404, detail="Google login is not configured")
+    return RedirectResponse(google_oauth.build_authorize_url(google_oauth.sign_state()))
+
+
+@router.get("/google/callback")
+async def google_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Google redirects here; hand the app JWT to the SPA via a URL fragment.
+
+    Every failure lands on the frontend with ?google_error=... instead of a
+    bare error page, so the user always ends up back in the app.
+    """
+    frontend = google_oauth.frontend_origin()
+
+    def _back_with_error(reason: str) -> RedirectResponse:
+        return RedirectResponse(f"{frontend}/?google_error={reason}")
+
+    if error:
+        return _back_with_error(error)
+    if not google_oauth.configured() or not code or not google_oauth.verify_state(state):
+        return _back_with_error("invalid_state")
+
+    try:
+        profile = await google_oauth.exchange_code(code)
+    except Exception:
+        return _back_with_error("google_exchange_failed")
+    email = profile.get("email")
+    if not email:
+        return _back_with_error("no_email")
+
+    user = google_oauth.resolve_google_user(db, email)
+    token = create_access_token(user.id)
+    return RedirectResponse(f"{frontend}/#token={token}")
