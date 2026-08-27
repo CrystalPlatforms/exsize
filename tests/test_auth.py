@@ -175,3 +175,52 @@ def test_me_returns_current_user(client):
     assert data["email"] == "user@example.com"
     assert data["role"] == "parent"
     assert data["language"] == "en"
+
+
+# --- Phone number setting (issue #68: schema prep; PII — db only) ---
+
+
+def test_get_settings_shows_empty_phone_number_by_default(client):
+    token = _register_and_login(client)
+    response = client.get("/api/settings", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["phone_number"] is None
+
+
+def test_phone_number_is_saved_and_persisted(client):
+    token = _register_and_login(client)
+    patched = client.patch("/api/settings", json={
+        "language": "en", "phone_number": "+48 600 700 800",
+    }, headers={"Authorization": f"Bearer {token}"})
+    assert patched.status_code == 200
+    assert patched.json()["phone_number"] == "+48 600 700 800"
+
+    reread = client.get("/api/settings", headers={"Authorization": f"Bearer {token}"})
+    assert reread.json()["phone_number"] == "+48 600 700 800"
+
+
+def test_phone_number_stays_untouched_when_key_is_omitted(client):
+    token = _register_and_login(client)
+    client.patch("/api/settings", json={
+        "language": "en", "phone_number": "+48 600 700 800",
+    }, headers={"Authorization": f"Bearer {token}"})
+
+    untouched = client.patch("/api/settings", json={"language": "pl"}, headers={
+        "Authorization": f"Bearer {token}",
+    })
+    assert untouched.status_code == 200
+    assert untouched.json()["language"] == "pl"
+    assert untouched.json()["phone_number"] == "+48 600 700 800"
+
+
+def test_phone_number_can_be_cleared_with_null(client):
+    token = _register_and_login(client)
+    client.patch("/api/settings", json={
+        "language": "en", "phone_number": "+48 600 700 800",
+    }, headers={"Authorization": f"Bearer {token}"})
+
+    cleared = client.patch("/api/settings", json={"language": "en", "phone_number": None}, headers={
+        "Authorization": f"Bearer {token}",
+    })
+    assert cleared.status_code == 200
+    assert cleared.json()["phone_number"] is None

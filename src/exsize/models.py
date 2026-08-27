@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from exsize.database import Base
@@ -18,6 +18,7 @@ class Task(Base):
     family_id: Mapped[int] = mapped_column(Integer, ForeignKey("families.id"), nullable=False)
     created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     day_of_week: Mapped[str | None] = mapped_column(String, nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     photo_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
@@ -48,6 +49,8 @@ class User(Base):
     nickname_changes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     equipped_icon_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("avatar_items.id"), nullable=True)
     equipped_background_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("avatar_items.id"), nullable=True)
+    # PII — never hardcode or log; only ever persisted in the database.
+    phone_number: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Transaction(Base):

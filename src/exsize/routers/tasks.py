@@ -18,6 +18,7 @@ class TaskCreateRequest(BaseModel):
     exbucks: int
     assigned_to: int
     day_of_week: str | None = None
+    due_date: date | None = None
 
 
 class TaskResponse(BaseModel):
@@ -28,6 +29,7 @@ class TaskResponse(BaseModel):
     status: str
     assigned_to: int
     day_of_week: str | None = None
+    due_date: date | None = None
     photo_url: str | None = None
     avatar_icon: str | None = None
     avatar_background: str | None = None
@@ -59,6 +61,7 @@ def create_task(body: TaskCreateRequest, user: User = Depends(get_current_user),
         family_id=user.family_id,
         created_by=user.id,
         day_of_week=body.day_of_week,
+        due_date=body.due_date,
     )
     db.add(task)
     db.commit()
@@ -94,6 +97,7 @@ def list_tasks(user: User = Depends(get_current_user), db: Session = Depends(get
         result.append(TaskResponse(
             id=t.id, name=t.name, description=t.description, exbucks=t.exbucks,
             status=t.status, assigned_to=t.assigned_to, day_of_week=t.day_of_week,
+            due_date=t.due_date,
             photo_url=t.photo_url,
             avatar_icon=icon.value if icon else None,
             avatar_background=bg.value if bg else None,
@@ -107,6 +111,7 @@ class TaskEditRequest(BaseModel):
     exbucks: int
     assigned_to: int
     day_of_week: str | None = None
+    due_date: date | None = None
 
 
 def _get_family_task(task_id: int, user: User, db: Session) -> Task:
@@ -138,6 +143,7 @@ def edit_task(task_id: int, body: TaskEditRequest, user: User = Depends(get_curr
     task.exbucks = body.exbucks
     task.assigned_to = body.assigned_to
     task.day_of_week = body.day_of_week
+    task.due_date = body.due_date
     db.commit()
     db.refresh(task)
     return task

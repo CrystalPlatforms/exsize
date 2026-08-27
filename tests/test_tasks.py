@@ -509,3 +509,51 @@ def test_cannot_act_on_task_outside_family(client):
         "Authorization": f"Bearer {parent2_token}",
     })
     assert response.status_code == 404
+
+
+# --- Due date (issue #68: schema prep) ---
+
+
+def test_task_created_with_due_date_returns_it(client):
+    parent_token, child_token, child_id = _setup_family_with_child(client)
+
+    response = client.post("/api/tasks", json={
+        "name": "Wynieś śmieci",
+        "description": "Wieczorem",
+        "exbucks": 5,
+        "assigned_to": child_id,
+        "due_date": "2026-09-01",
+    }, headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert response.status_code == 201
+    assert response.json()["due_date"] == "2026-09-01"
+
+    listing = client.get("/api/tasks", headers={"Authorization": f"Bearer {child_token}"}).json()
+    assert listing[0]["due_date"] == "2026-09-01"
+
+
+def test_task_created_without_due_date_keeps_it_empty(client):
+    parent_token, child_token, child_id = _setup_family_with_child(client)
+
+    task = client.post("/api/tasks", json={
+        "name": "Do 10 pushups", "description": "", "exbucks": 5, "assigned_to": child_id,
+    }, headers={"Authorization": f"Bearer {parent_token}"}).json()
+
+    assert task["due_date"] is None
+
+
+def test_task_due_date_can_be_changed_by_edit(client):
+    parent_token, child_token, child_id = _setup_family_with_child(client)
+
+    task = client.post("/api/tasks", json={
+        "name": "Wynieś śmieci", "description": "", "exbucks": 5, "assigned_to": child_id,
+        "due_date": "2026-09-01",
+    }, headers={"Authorization": f"Bearer {parent_token}"}).json()
+
+    edited = client.put(f"/api/tasks/{task['id']}", json={
+        "name": "Wynieś śmieci", "description": "", "exbucks": 5, "assigned_to": child_id,
+        "due_date": "2026-09-08",
+    }, headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert edited.status_code == 200
+    assert edited.json()["due_date"] == "2026-09-08"

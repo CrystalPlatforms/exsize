@@ -1,6 +1,6 @@
-"""End-to-end tests for the MCP server (issues #66 and #67).
+"""End-to-end and unit tests for the MCP server (issues #66, #67 and #76).
 
-Every test talks to the real MCP interface — JSON-RPC 2.0 over HTTP POST /mcp —
+Every e2e test talks to the real MCP interface — JSON-RPC 2.0 over HTTP POST /mcp —
 authenticated with a Bearer API token minted through the app's REST API. The
 MCP caller acts as the token owner with that user's role.
 
@@ -8,6 +8,14 @@ Assumptions encoded here:
 - Token: existing exs_... API token (POST /api/cryplo/tokens), non-revoked.
 - To-Do via MCP is the token owner's personal To-Do (no family involved).
 - Read-only tools never change balances, XP or chore state.
+- Issue #76: a Google caller's identity arrives as AccessToken.claims["email"];
+  the numeric Google sub in client_id is NEVER used to pick a user. exs_ tokens
+  keep scopes={"mcp"} with a numeric client_id (the owner's user id).
+- Issue #76: a first-time Google email auto-creates an account with role=child,
+  language=pl, no family and an unusable random password; repeat logins reuse it.
+- Issue #76: the Google OAuth flow itself (consent screen, redirect to Google)
+  needs a browser — here only the offline parts are tested: the auth factory,
+  the exs_ fallback on the hybrid provider and the protocol guard.
 """
 
 import pytest
@@ -297,3 +305,196 @@ def test_readonly_tools_leave_data_unchanged(client):
     assert profile["xp"] == 0
     chores = _tool(client, parent_token, "chores_list", {})
     assert [c["status"] for c in chores] == ["assigned"]
+
+
+# --- Issue #76: hybrid Google OAuth + exs_ tokens ---
+
+import asyncio
+
+import pytest
+from fastmcp.exceptions import ToolError
+from mcp.server.auth.provider import AccessToken
+
+from exsize.database import SessionLocal
+from exsize.mcp_server import (
+    ExsizeGoogleProvider,
+    ExsizeTokenVerifier,
+    _caller,
+    build_auth,
+)
+from exsize.models import ApiToken, User
+from exsize.security import hash_password
+
+# Real Google subs are 21-digit numbers — that is exactly why a numeric
+# client_id alone must never resolve the caller; only claims["email"] does.
+GOOGLE_SUB = "107639749558012345678"
+GOOGLE_SCOPES = ["openid", "https://www.googleapis.com/auth/userinfo.email"]
+
+
+def _google_access(email=None):
+    claims = {"sub": GOOGLE_SUB, "email": email}
+    return AccessToken(
+        token="google-access-token",
+        client_id=GOOGLE_SUB,
+        scopes=GOOGLE_SCOPES,
+        claims=claims,
+    )
+
+
+def _exs_access(user_id):
+    return AccessToken(token="exs_test", client_id=str(user_id), scopes=["mcp"], claims=None)
+
+
+def _seed_user(email, role="child", language="pl"):
+    db = SessionLocal()
+    try:
+        user = User(email=email, password_hash=hash_password("Haslo123!"), role=role, language=language)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user.id
+    finally:
+        db.close()
+
+
+@pytest.fixture()
+def tables():
+    """Tables on the global SessionLocal database — for unit tests that call
+    MCP internals directly instead of going through the FastAPI TestClient."""
+    engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
+
+
+def test_caller_acts_as_the_account_matching_the_google_email(tables, monkeypatch):
+    existing_id = _seed_user("mama@test.pl", role="parent")
+    monkeypatch.setattr("exsize.mcp_server.get_access_token", lambda: _google_access("mama@test.pl"))
+
+    with _caller() as (user, db):
+        assert user.id == existing_id
+        assert user.email == "mama@test.pl"
+        assert user.role == "parent"
+        db.close()
+
+
+def test_first_google_email_auto_creates_child_account_and_repeats_reuse_it(tables, monkeypatch):
+    monkeypatch.setattr("exsize.mcp_server.get_access_token", lambda: _google_access("nowa@test.pl"))
+
+    with _caller() as (user, db):
+        assert user.email == "nowa@test.pl"
+        assert user.role == "child"
+        assert user.language == "pl"
+        assert user.family_id is None
+        first_id = user.id
+        db.close()
+
+    monkeypatch.setattr(
+        "exsize.mcp_server.get_access_token", lambda: _google_access("NOWA@test.pl")
+    )
+    with _caller() as (user, db):
+        assert user.id == first_id, "second login must reuse the auto-created account"
+        db.close()
+
+
+def test_numeric_google_sub_is_never_treated_as_user_id(tables, monkeypatch):
+    """A token without an email claim must not resolve a user by its digits."""
+    _seed_user("mama@test.pl")
+    monkeypatch.setattr(
+        "exsize.mcp_server.get_access_token",
+        lambda: AccessToken(token="t", client_id=GOOGLE_SUB, scopes=GOOGLE_SCOPES, claims={"sub": GOOGLE_SUB}),
+    )
+    with pytest.raises(ToolError):
+        with _caller():
+            pass
+
+
+def test_caller_still_resolves_exs_token_owner(tables, monkeypatch):
+    user_id = _seed_user("syn@test.pl")
+    monkeypatch.setattr("exsize.mcp_server.get_access_token", lambda: _exs_access(user_id))
+
+    with _caller() as (user, db):
+        assert user.id == user_id
+        db.close()
+
+
+# --- Auth factory by environment (issue #76) ---
+
+
+def test_build_auth_defaults_to_api_tokens_only(monkeypatch):
+    for key in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "MCP_AUTH_IN_MEMORY"):
+        monkeypatch.delenv(key, raising=False)
+    assert isinstance(build_auth(), ExsizeTokenVerifier)
+
+
+def test_build_auth_hybrid_when_google_keys_present(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "GOCSPX-test")
+    monkeypatch.setenv("MCP_BASE_URL", "https://exsize-prod.onrender.com/mcp")
+    provider = build_auth()
+    assert isinstance(provider, ExsizeGoogleProvider)
+    assert str(provider.base_url) == "https://exsize-prod.onrender.com/mcp"
+
+
+def test_build_auth_refuses_google_keys_without_public_base_url(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "GOCSPX-test")
+    monkeypatch.delenv("MCP_BASE_URL", raising=False)
+    with pytest.raises(RuntimeError):
+        build_auth()
+
+
+def test_build_auth_in_memory_mode_for_offline_tests(monkeypatch):
+    from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
+
+    monkeypatch.setenv("MCP_AUTH_IN_MEMORY", "1")
+    assert isinstance(build_auth(), InMemoryOAuthProvider)
+
+
+# --- Hybrid provider: exs_ fallback below the Google OAuth flow (issue #76) ---
+
+
+def _hybrid_provider():
+    return ExsizeGoogleProvider(
+        client_id="test-id.apps.googleusercontent.com",
+        client_secret="GOCSPX-test",
+        base_url="https://testserver/mcp",
+        required_scopes=["openid", "email"],
+    )
+
+
+def test_google_provider_falls_back_to_exs_tokens(tables):
+    user_id = _seed_user("curl@test.pl")
+    db = SessionLocal()
+    try:
+        db.add(ApiToken(token_hash=hash_password("exs_smoke"), user_id=user_id))
+        db.commit()
+    finally:
+        db.close()
+
+    access = asyncio.run(_hybrid_provider().load_access_token("exs_smoke"))
+    assert access is not None
+    assert access.client_id == str(user_id)
+    assert access.scopes == ["mcp"]
+
+
+def test_google_provider_rejects_unknown_credentials(tables):
+    assert asyncio.run(_hybrid_provider().load_access_token("exs_not-real")) is None
+
+
+# --- In-memory OAuth mode: same protocol guard, offline (issue #76) ---
+
+
+def test_in_memory_oauth_mode_still_guards_the_protocol(monkeypatch):
+    monkeypatch.setenv("MCP_AUTH_IN_MEMORY", "1")
+    from fastmcp import FastMCP
+
+    server = FastMCP("ExSize-Test", auth=build_auth())
+    asgi = server.http_app(path="/mcp", stateless_http=True, json_response=True)
+    with TestClient(asgi) as oauth_client:
+        resp = oauth_client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+            headers=MCP_ACCEPT,
+        )
+    assert resp.status_code == 401

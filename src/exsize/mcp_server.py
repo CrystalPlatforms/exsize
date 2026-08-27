@@ -1,19 +1,27 @@
-"""MCP server for ExSize (issue #66: server + auth + To-Do tools, issue #67: chores + read-only gamification/family).
+"""MCP server for ExSize (issue #66: server + auth + To-Do tools, issue #67: chores +
+read-only gamification/family, issue #76: Google OAuth for the Claude connector).
 
 Streamable HTTP endpoint mounted at ``/mcp`` inside the FastAPI app (single
-Render service, no extra hosting). Authentication reuses the existing API-token
-infrastructure: ``Authorization: Bearer exs_...`` verified against bcrypt
-hashes in ``api_tokens`` — the same tokens the Cryplo API accepts. Every MCP
-request must carry a valid token, including ``tools/list``; otherwise the
-request is rejected with 401 before any tool runs.
+Render service, no extra hosting). Authentication depends on the environment:
 
-Tools are thin adapters: To-Do tools call ``TodoService`` directly; chores,
-gamification and family tools call the existing router functions, so every
-business rule (role checks, status transitions, payouts) lives in exactly one
-place. The MCP caller acts as the owner of the verified token, with that
-user's role and permissions.
+- Default: ``Authorization: Bearer exs_...`` verified against bcrypt hashes in
+  ``api_tokens`` — the same tokens the Cryplo API accepts.
+- With ``GOOGLE_CLIENT_ID`` + ``GOOGLE_CLIENT_SECRET`` (+ public ``MCP_BASE_URL``):
+  a real Google OAuth flow through fastmcp's ``GoogleProvider`` (OAuth proxy with
+  consent screen), and ``exs_...`` tokens still work as a fallback via the same
+  hybrid provider — curl/tests/Cryplo keep working unchanged.
+- With ``MCP_AUTH_IN_MEMORY=1``: fastmcp's in-memory OAuth provider (offline tests).
+
+Every MCP request must be authenticated, including ``tools/list``; otherwise the
+request is rejected with 401 before any tool runs. Google callers act as the
+matching ExSize account (matched by email; a first-time email gets an
+auto-created child account). Tools are thin adapters: To-Do tools call
+``TodoService`` directly; chores, gamification and family tools call the
+existing router functions, so every business rule lives in exactly one place.
 """
 
+import os
+import secrets
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Literal
@@ -22,6 +30,8 @@ import anyio
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import TokenVerifier
+from fastmcp.server.auth.providers.google import GoogleProvider
+from fastmcp.server.auth.providers.in_memory import InMemoryOAuthProvider
 from fastmcp.server.dependencies import get_access_token
 from mcp.server.auth.provider import AccessToken
 from sqlalchemy.orm import Session
@@ -42,49 +52,136 @@ from exsize.routers.tasks import (
     list_tasks,
     reject_task,
 )
+from exsize.security import hash_password
 from exsize.services.todo import TodoNotFound, TodoService
 
 
-class ExsizeTokenVerifier(TokenVerifier):
-    """Verifies ExSize API tokens (exs_...) so MCP requests are authenticated.
+async def _api_token_access(token: str) -> AccessToken | None:
+    """Resolve a raw exs_ token into an MCP AccessToken owned by its user.
 
-    bcrypt verification is offloaded to a worker thread — it would otherwise
-    block the event loop for the whole server.
+    Shared by the plain-token verifier and the Google-provider fallback; bcrypt
+    verification is offloaded to a worker thread so it cannot block the loop.
     """
+    db = SessionLocal()
+    try:
+        user = await anyio.to_thread.run_sync(
+            lambda: resolve_api_token_user(db, token)
+        )
+        if user is None:
+            return None
+        return AccessToken(token=token, client_id=str(user.id), scopes=["mcp"])
+    finally:
+        db.close()
+
+
+class ExsizeTokenVerifier(TokenVerifier):
+    """Verifies ExSize API tokens (exs_...) so MCP requests are authenticated."""
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        db = SessionLocal()
-        try:
-            user = await anyio.to_thread.run_sync(
-                lambda: resolve_api_token_user(db, token)
+        return await _api_token_access(token)
+
+
+class ExsizeGoogleProvider(GoogleProvider):
+    """Google OAuth (consent screen included) with an exs_-token fallback.
+
+    ``load_access_token`` is the hook fastmcp's OAuth proxy actually consults
+    for every protected request (it verifies the proxy-signed JWT and swaps it
+    for the validated upstream Google identity). When that fails — i.e. the
+    request carried no Google token at all — we fall back to API tokens so
+    existing clients keep working on the same endpoint.
+    """
+
+    async def load_access_token(self, token: str) -> AccessToken | None:
+        validated = await super().load_access_token(token)
+        if validated is not None:
+            return validated
+        return await _api_token_access(token)
+
+
+def build_auth():
+    """Pick the MCP authentication backend from the environment.
+
+    - MCP_AUTH_IN_MEMORY=1                  -> offline OAuth provider (tests)
+    - GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET -> hybrid Google OAuth + exs_ tokens
+    - otherwise                             -> exs_ tokens only (current behavior)
+    """
+    if os.environ.get("MCP_AUTH_IN_MEMORY") == "1":
+        # The MCP SDK only accepts HTTPS issuer URLs, hence the https default.
+        return InMemoryOAuthProvider(base_url=os.environ.get("MCP_BASE_URL", "https://testserver"))
+
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET")
+    if client_id and client_secret:
+        base_url = os.environ.get("MCP_BASE_URL")
+        if not base_url:
+            raise RuntimeError(
+                "GOOGLE_CLIENT_ID is set but MCP_BASE_URL is missing — set it to the "
+                "public MCP URL including the /mcp path, e.g. "
+                "https://exsize-prod.onrender.com/mcp"
             )
-            if user is None:
-                return None
-            return AccessToken(token=token, client_id=str(user.id), scopes=["mcp"])
-        finally:
-            db.close()
+        return ExsizeGoogleProvider(
+            client_id=client_id,
+            client_secret=client_secret,
+            base_url=base_url,
+            required_scopes=["openid", "email"],
+        )
+    return ExsizeTokenVerifier()
+
+
+def _resolve_google_caller(db: Session, email: str) -> User:
+    """Map a verified Google email onto an ExSize account.
+
+    An existing account wins (register in the web app with the same email BEFORE
+    the first Google login to adopt it); unknown emails get an auto-created
+    child account with language pl and a random unusable password (web login
+    stays impossible until a reset is built)."""
+    user = db.query(User).filter(User.email == email.lower()).first()
+    if user is None:
+        user = User(
+            email=email.lower(),
+            password_hash=hash_password(secrets.token_urlsafe(32)),
+            role="child",
+            language="pl",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
 
 
 mcp = FastMCP(
     "ExSize",
     instructions=(
-        "Family chore & reward manager. Tools act as the owner of the API token: "
+        "Family chore & reward manager. Tools act as the authenticated caller: "
         "a parent can manage chores and approve; a child can accept and complete "
-        "their own chores. To-Do lists are personal to the token owner."
+        "their own chores. To-Do lists are personal to the caller."
     ),
-    auth=ExsizeTokenVerifier(),
+    auth=build_auth(),
 )
 
 
 @contextmanager
 def _caller():
-    """Resolve the MCP caller (token owner) with a fresh DB session."""
+    """Resolve the MCP caller with a fresh DB session.
+
+    Google-path access tokens carry an ``email`` claim and win over anything
+    else (their numeric ``sub`` must never be mistaken for a user id);
+    exs_ tokens carry scopes={"mcp"} and a numeric client_id pointing at the
+    token owner.
+    """
     access = get_access_token()
-    if access is None or not str(access.client_id).isdigit():
+    if access is None:
         raise ToolError("Not authenticated")
+    email = (access.claims or {}).get("email")
+
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.id == int(access.client_id)).first()
+        if email:
+            user = _resolve_google_caller(db, str(email))
+        elif "mcp" in set(access.scopes or []) and str(access.client_id).isdigit():
+            user = db.query(User).filter(User.id == int(access.client_id)).first()
+        else:
+            raise ToolError("Not authenticated")
         if user is None:
             raise ToolError("User not found")
         yield user, db
