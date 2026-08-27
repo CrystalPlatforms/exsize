@@ -25,6 +25,7 @@ import secrets
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
 import anyio
 from fastmcp import FastMCP
@@ -116,13 +117,19 @@ def build_auth():
         if not base_url:
             raise RuntimeError(
                 "GOOGLE_CLIENT_ID is set but MCP_BASE_URL is missing — set it to the "
-                "public MCP URL including the /mcp path, e.g. "
-                "https://exsize-prod.onrender.com/mcp"
+                "public site origin, e.g. https://exsize-prod.onrender.com"
             )
+        # fastmcp appends the mount path (/mcp) itself: a base_url that already
+        # contains it doubles the well-known suffix (/mcp/mcp) and mis-points
+        # the OAuth endpoints, so normalize to the bare origin. The Google
+        # callback keeps its registered /mcp/auth/callback URI via redirect_path.
+        parsed = urlsplit(base_url)
+        origin = f"{parsed.scheme}://{parsed.netloc}"
         return ExsizeGoogleProvider(
             client_id=client_id,
             client_secret=client_secret,
-            base_url=base_url,
+            base_url=origin,
+            redirect_path="/mcp/auth/callback",
             required_scopes=["openid", "email"],
         )
     return ExsizeTokenVerifier()

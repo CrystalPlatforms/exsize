@@ -433,7 +433,29 @@ def test_build_auth_hybrid_when_google_keys_present(monkeypatch):
     monkeypatch.setenv("MCP_BASE_URL", "https://exsize-prod.onrender.com/mcp")
     provider = build_auth()
     assert isinstance(provider, ExsizeGoogleProvider)
-    assert str(provider.base_url) == "https://exsize-prod.onrender.com/mcp"
+    # fastmcp appends the /mcp mount path itself — a base_url containing it
+    # doubled the well-known suffix and broke Claude's discovery (404 Not Found).
+    assert str(provider.base_url).rstrip("/") == "https://exsize-prod.onrender.com"
+
+
+def test_hybrid_oauth_mode_serves_discovery_metadata(monkeypatch):
+    """Regression: with the Google provider, Claude's discovery URLs must resolve —
+    protected-resource metadata at /mcp (once, not /mcp/mcp) and the Google
+    callback exactly at the URI registered in Google Console."""
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "test-id.apps.googleusercontent.com")
+    monkeypatch.setenv("GOOGLE_CLIENT_SECRET", "GOCSPX-test")
+    monkeypatch.setenv("MCP_BASE_URL", "https://exsize-prod.onrender.com/mcp")
+    from fastmcp import FastMCP
+
+    server = FastMCP("ExSize-Test", auth=build_auth())
+    asgi = server.http_app(path="/mcp", stateless_http=True, json_response=True)
+    with TestClient(asgi) as oauth_client:
+        metadata = oauth_client.get("/.well-known/oauth-protected-resource/mcp")
+        assert metadata.status_code == 200
+        assert metadata.json()["resource"] == "https://exsize-prod.onrender.com/mcp"
+
+        assert oauth_client.get("/.well-known/oauth-protected-resource/mcp/mcp").status_code == 404
+        assert oauth_client.get("/mcp/auth/callback").status_code != 404
 
 
 def test_build_auth_refuses_google_keys_without_public_base_url(monkeypatch):
